@@ -38,7 +38,8 @@
 
 /* private includes ----------------------------------------------------------*/
 /* add user code begin private includes */
-
+#include "board_io.h"
+#include "database.h"
 /* add user code end private includes */
 
 /* private typedef -----------------------------------------------------------*/
@@ -120,7 +121,8 @@ int main(void)
   wk_tmr5_init();
 
   /* add user code begin 2 */
-
+  board_io_init();
+  db_init();
   /* add user code end 2 */
 
   /* init freertos function. */

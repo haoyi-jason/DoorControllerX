@@ -11,7 +11,8 @@
 
 /* private includes ----------------------------------------------------------*/
 /* add user code begin private includes */
-
+#include "door_ctrl.h"
+#include "comm_task.h"
 /* add user code end private includes */
 
 /* private typedef -----------------------------------------------------------*/
@@ -90,13 +91,21 @@ void vApplicationGetTimerTaskMemory( StaticTask_t ** ppxTimerTaskTCBBuffer, Stac
   */
 void freertos_task_create(void)
 {
-  /* create my_task01 task */
-  xTaskCreate(my_task01_func,
-              "my_task01",
-              128,
+  /* create door control task */
+  xTaskCreate(door_ctrl_task,
+              "door_ctrl",
+              512,
               NULL,
-              0,
-              &my_task01_handle);
+              2,
+              NULL);
+
+  /* create communication task */
+  xTaskCreate(comm_task_run,
+              "comm_task",
+              256,
+              NULL,
+              1,
+              NULL);
 }
 
 /**
