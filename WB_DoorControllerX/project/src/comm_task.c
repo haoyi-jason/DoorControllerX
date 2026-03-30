@@ -257,11 +257,11 @@ void comm_task_run(void *pvParameters)
             case PS_BODY:
                 frame_buf[body_received++] = b;
                 if (body_received >= (body_expected + 1u)) {
-                    /* Full frame received (LEN stored at 0, rest follows) */
-                    uint8_t etx_idx = frame_buf[0] + 2u; /* LEN+CMD+DATA + CRC = LEN+2 bytes from idx 0 */
+                    /* Full frame received: verify ETX then check CRC */
+                    /* ETX is at frame_buf[LEN + 2]:  1(LEN field) + LEN(CMD+DATA) + 1(CRC) */
+                    uint8_t etx_idx = frame_buf[0] + 2u;
                     if (frame_buf[etx_idx] == PROTO_ETX) {
-                        /* CRC is at etx_idx-1 = frame_buf[0]+1 */
-                        uint8_t rx_crc   = frame_buf[etx_idx - 1u];
+                        uint8_t rx_crc   = frame_buf[etx_idx - 1u];  /* CRC is one byte before ETX */
                         uint8_t calc_crc = comm_calc_crc(frame_buf, (uint8_t)(frame_buf[0] + 1u));
                         if (calc_crc == rx_crc) {
                             process_frame(frame_buf);

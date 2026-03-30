@@ -61,9 +61,9 @@ extern "C" {
 #define M3_LL_READ()      gpio_input_data_bit_read(GPIOC, GPIO_PINS_1)
 
 /* Trigger input reads -------------------------------------------------------*/
-/* TG_OPEN → PC5 (active low: SET when pressed) */
+/* TG_OPEN → PC5 (active-low: RESET when trigger active) */
 #define TG_OPEN_READ()    gpio_input_data_bit_read(GPIOC, GPIO_PINS_5)
-/* TG_CLOSE → PC6 */
+/* TG_CLOSE → PC6 (active-low: RESET when trigger active) */
 #define TG_CLOSE_READ()   gpio_input_data_bit_read(GPIOC, GPIO_PINS_6)
 
 /* DIP switch reads (active low: RESET when ON) ------------------------------*/

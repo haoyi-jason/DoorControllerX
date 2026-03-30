@@ -25,7 +25,6 @@
 /* Private constants ---------------------------------------------------------*/
 #define MAX_BLOCK_RETRIES   3u
 #define MAX_LOCK_RETRIES    3u
-#define PID_DT_SEC          0.005f   /* matches default TIME_WINDOW = 5 ms */
 
 /* Private variables ---------------------------------------------------------*/
 static sys_state_t  sys_state   = SYS_STATE_INIT;
@@ -43,6 +42,14 @@ static uint32_t operation_start_tick = 0u;  /* used for timeout check */
 static uint32_t get_tick_ms(void)
 {
     return (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+}
+
+/** Convert PID output (possibly negative) to a clamped duty percentage (0-100) */
+static uint8_t pid_duty_pct(float pid_out)
+{
+    float abs_pid_out = (pid_out > 0.0f) ? pid_out : -pid_out;
+    if (abs_pid_out > 100.0f) abs_pid_out = 100.0f;
+    return (uint8_t)abs_pid_out;
 }
 
 /** Read M1 angle in degrees */
@@ -68,12 +75,12 @@ static float m2_pos(void)
 /**
   * @brief  Initialise the door control module.
   *         Called once before the FreeRTOS task starts.
+  *         db_init() is called by main() before the scheduler starts.
   */
 void door_ctrl_init(void)
 {
     uint8_t dip = board_get_dip();
 
-    db_init();
     db_set_live(LD_DIP_VALUE, dip);
 
     pid_init(&pid_m1, 1.0f, 0.05f, 0.1f);
@@ -128,7 +135,7 @@ void door_unlock(void)
 {
     uint32_t active_time_ms;
 
-    active_time_ms = db_get_param(DF_LOCK_ACTIVE_TIME) * 100u; /* ×0.1 s → ms */
+    active_time_ms = db_get_param(DF_LOCK_ACTIVE_TIME) * 100u; /* param unit = 0.1s, ×100 converts to ms */
 
     D2_SET_PH(0);                              /* unlock direction */
     RELAY3_SET(1);
@@ -149,7 +156,7 @@ void door_lock(void)
 {
     uint32_t active_time_ms;
 
-    active_time_ms = db_get_param(DF_LOCK_ACTIVE_TIME) * 100u;
+    active_time_ms = db_get_param(DF_LOCK_ACTIVE_TIME) * 100u; /* param unit = 0.1s, ×100 converts to ms */
 
     D2_SET_PH(1);                              /* lock direction */
     RELAY3_SET(1);
@@ -165,23 +172,29 @@ void door_lock(void)
 
 /**
   * @brief  Check lock/unlock sensor feedback.
-  * @retval 0 = OK, 1 = unlock error (M3_UL not triggered),
-  *                 2 = lock error (M3_LL not triggered)
+  * @retval 0 = OK (one sensor properly triggered),
+  *         1 = no feedback (neither sensor triggered),
+  *         2 = sensor error (both triggered simultaneously)
   */
 int door_check_lock_error(void)
 {
+    flag_status ul, ll;
+
     /* Allow short settle time before reading sensors */
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    if (M3_UL_READ() == RESET && M3_LL_READ() == RESET) {
-        /* Neither sensor triggered — indeterminate */
-        return 0;
+    ul = M3_UL_READ();
+    ll = M3_LL_READ();
+
+    if (ul != RESET && ll != RESET) {
+        /* Neither sensor triggered — lock/unlock did not complete */
+        return 1;
     }
-    if (M3_UL_READ() != RESET && M3_LL_READ() != RESET) {
-        /* Both triggered simultaneously — sensor error */
+    if (ul == RESET && ll == RESET) {
+        /* Both triggered simultaneously — sensor/wiring error */
         return 2;
     }
-    return 0;
+    return 0;   /* Exactly one sensor triggered — consistent state */
 }
 
 /* ============================================================================
@@ -250,6 +263,7 @@ void door_main_open(void)
     uint8_t  has_lock      = (dip & 0x02u) ? 1u : 0u;
     uint32_t open_angle    = db_get_param(DF_M1_OPEN_ANGLE);
     uint8_t  rev_duty      = (uint8_t)db_get_param(DF_M1_OPEN_REV_DUTY);
+    uint32_t retry_delay_ms= db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u;
     uint32_t lock_retry    = 0u;
     float    pos, prev_pos;
     uint32_t block_count   = 0u;
@@ -284,7 +298,7 @@ void door_main_open(void)
             }
 
             if (lock_retry < (MAX_LOCK_RETRIES - 1u)) {
-                vTaskDelay(pdMS_TO_TICKS(db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u));
+                vTaskDelay(pdMS_TO_TICKS(retry_delay_ms));
             }
         }
 
@@ -321,8 +335,8 @@ void door_main_open(void)
         }
 
         /* PID compute */
-        float pid_out = pid_compute(&pid_m1, (float)open_angle, pos, PID_DT_SEC);
-        float _abs = (pid_out > 0.0f) ? pid_out : -pid_out; if (_abs > 100.0f) _abs = 100.0f; uint8_t duty = (uint8_t)_abs;
+        float pid_out = pid_compute(&pid_m1, (float)open_angle, pos, (float)check_interval / 1000.0f);
+        uint8_t duty = pid_duty_pct(pid_out);
         motor_set_pwm(MOTOR_M1, duty);
 
         vTaskDelay(pdMS_TO_TICKS(check_interval));
@@ -354,7 +368,7 @@ void door_main_open(void)
                 }
                 /* Wait and retry */
                 motor_set_pwm(MOTOR_M1, 0u);
-                vTaskDelay(pdMS_TO_TICKS(db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u));
+                vTaskDelay(pdMS_TO_TICKS(retry_delay_ms));
                 motor_set_pwm(MOTOR_M1, (uint8_t)db_get_param(DF_M1_START_DUTY));
             }
             prev_pos  = pos;
@@ -385,6 +399,7 @@ void door_main_close(void)
     uint8_t  has_lock     = (dip & 0x02u) ? 1u : 0u;
     uint32_t zero_error   = db_get_param(DF_M1_ZERO_ERROR);
     uint8_t  fwd_duty     = (uint8_t)db_get_param(DF_M1_CLOSE_FWD_DUTY);
+    uint32_t retry_delay_ms = db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u;
     uint32_t lock_retry;
     float    pos, prev_pos;
     uint32_t block_count  = 0u;
@@ -416,8 +431,8 @@ void door_main_close(void)
             break;
         }
 
-        float pid_out = pid_compute(&pid_m1, 0.0f, pos, PID_DT_SEC);
-        float _abs = (pid_out > 0.0f) ? pid_out : -pid_out; if (_abs > 100.0f) _abs = 100.0f; uint8_t duty = (uint8_t)_abs;
+        float pid_out = pid_compute(&pid_m1, 0.0f, pos, (float)check_interval / 1000.0f);
+        uint8_t duty = pid_duty_pct(pid_out);
         motor_set_pwm(MOTOR_M1, duty);
 
         vTaskDelay(pdMS_TO_TICKS(check_interval));
@@ -447,7 +462,7 @@ void door_main_close(void)
                     return;
                 }
                 motor_set_pwm(MOTOR_M1, 0u);
-                vTaskDelay(pdMS_TO_TICKS(db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u));
+                vTaskDelay(pdMS_TO_TICKS(retry_delay_ms));
                 motor_set_pwm(MOTOR_M1, (uint8_t)db_get_param(DF_M1_START_DUTY));
             }
             prev_pos  = pos;
@@ -480,7 +495,7 @@ void door_main_close(void)
             }
 
             if (lock_retry < (MAX_LOCK_RETRIES - 1u)) {
-                vTaskDelay(pdMS_TO_TICKS(db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u));
+                vTaskDelay(pdMS_TO_TICKS(retry_delay_ms));
             }
         }
 
@@ -513,6 +528,7 @@ void door_sub_open(void)
 {
     uint32_t diff_angle    = db_get_param(DF_OPEN_DIFF_ANGLE);
     uint32_t open_angle    = db_get_param(DF_M2_OPEN_ANGLE);
+    uint32_t retry_delay_ms= db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u;
     uint32_t check_interval= (uint32_t)db_get_param(DF_TIME_WINDOW);
     float    p1, p2, pos;
     uint32_t block_count   = 0u;
@@ -550,8 +566,8 @@ void door_sub_open(void)
 
         if (pos >= (float)open_angle) break;
 
-        float pid_out = pid_compute(&pid_m2, (float)open_angle, pos, PID_DT_SEC);
-        float _abs = (pid_out > 0.0f) ? pid_out : -pid_out; if (_abs > 100.0f) _abs = 100.0f; uint8_t duty = (uint8_t)_abs;
+        float pid_out = pid_compute(&pid_m2, (float)open_angle, pos, (float)check_interval / 1000.0f);
+        uint8_t duty = pid_duty_pct(pid_out);
         motor_set_pwm(MOTOR_M2, duty);
 
         vTaskDelay(pdMS_TO_TICKS(check_interval));
@@ -581,7 +597,7 @@ void door_sub_open(void)
                     return;
                 }
                 motor_set_pwm(MOTOR_M2, 0u);
-                vTaskDelay(pdMS_TO_TICKS(db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u));
+                vTaskDelay(pdMS_TO_TICKS(retry_delay_ms));
                 motor_set_pwm(MOTOR_M2, (uint8_t)db_get_param(DF_M2_START_DUTY));
             }
             prev_pos  = pos;
@@ -606,6 +622,7 @@ void door_sub_close(void)
 {
     uint32_t diff_angle    = db_get_param(DF_OPEN_DIFF_ANGLE);
     uint32_t zero_error    = db_get_param(DF_M2_ZERO_ERROR);
+    uint32_t retry_delay_ms= db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u;
     uint32_t check_interval= (uint32_t)db_get_param(DF_TIME_WINDOW);
     float    p1, p2, pos;
     uint32_t block_count   = 0u;
@@ -643,8 +660,8 @@ void door_sub_close(void)
 
         if (M2_HOME_READ() != RESET || pos < (float)zero_error) break;
 
-        float pid_out = pid_compute(&pid_m2, 0.0f, pos, PID_DT_SEC);
-        float _abs = (pid_out > 0.0f) ? pid_out : -pid_out; if (_abs > 100.0f) _abs = 100.0f; uint8_t duty = (uint8_t)_abs;
+        float pid_out = pid_compute(&pid_m2, 0.0f, pos, (float)check_interval / 1000.0f);
+        uint8_t duty = pid_duty_pct(pid_out);
         motor_set_pwm(MOTOR_M2, duty);
 
         vTaskDelay(pdMS_TO_TICKS(check_interval));
@@ -674,7 +691,7 @@ void door_sub_close(void)
                     return;
                 }
                 motor_set_pwm(MOTOR_M2, 0u);
-                vTaskDelay(pdMS_TO_TICKS(db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u));
+                vTaskDelay(pdMS_TO_TICKS(retry_delay_ms));
                 motor_set_pwm(MOTOR_M2, (uint8_t)db_get_param(DF_M2_START_DUTY));
             }
             prev_pos  = pos;
@@ -807,16 +824,18 @@ void door_ctrl_run(void)
         break;
 
     /* ---------------------------------------------------------------------- */
-    case SYS_STATE_BLOCKED:
+    case SYS_STATE_BLOCKED: {
         /* Retry after BLOCK_RETRY_DELAY_SEC */
+        uint32_t retry_delay_ms = db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u;
         motor_disable(MOTOR_M1);
         motor_disable(MOTOR_M2);
         door_beep(200);
-        vTaskDelay(pdMS_TO_TICKS(db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u));
+        vTaskDelay(pdMS_TO_TICKS(retry_delay_ms));
         db_set_live(LD_BLOCK_COUNT, 0u);
         /* Return to WAIT — operator must re-trigger */
         sys_state = SYS_STATE_WAIT;
         break;
+    }
 
     /* ---------------------------------------------------------------------- */
     case SYS_STATE_ERROR:
