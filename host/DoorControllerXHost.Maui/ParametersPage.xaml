@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoorControllerXHost.Maui.ParametersPage"
+             Title="DF Parameters">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="24" Spacing="14">
+            <Label Text="DF Parameter Read / Write"
+                   FontSize="24"
+                   FontAttributes="Bold" />
+
+            <Picker x:Name="ParamPicker"
+                    Title="Select DF parameter"
+                    ItemDisplayBinding="{Binding Name}"
+                    SelectedIndexChanged="OnParamSelectionChanged" />
+
+            <Grid ColumnDefinitions="Auto,*"
+                  RowDefinitions="Auto,Auto,Auto,Auto"
+                  ColumnSpacing="10"
+                  RowSpacing="8">
+                <Label Grid.Row="0" Grid.Column="0" Text="ID" FontAttributes="Bold" />
+                <Label x:Name="ParamIdLabel" Grid.Row="0" Grid.Column="1" Text="-" />
+
+                <Label Grid.Row="1" Grid.Column="0" Text="Range" FontAttributes="Bold" />
+                <Label x:Name="ParamRangeLabel" Grid.Row="1" Grid.Column="1" Text="-" />
+
+                <Label Grid.Row="2" Grid.Column="0" Text="Default" FontAttributes="Bold" />
+                <Label x:Name="ParamDefaultLabel" Grid.Row="2" Grid.Column="1" Text="-" />
+
+                <Label Grid.Row="3" Grid.Column="0" Text="Value" FontAttributes="Bold" />
+                <Entry x:Name="ParamValueEntry" Grid.Row="3" Grid.Column="1" Keyboard="Numeric" Placeholder="Enter value" />
+            </Grid>
+
+            <HorizontalStackLayout Spacing="10">
+                <Button Text="Read" Clicked="OnReadClicked" />
+                <Button Text="Write" Clicked="OnWriteClicked" />
+                <Button Text="Read All" Clicked="OnReadAllClicked" />
+            </HorizontalStackLayout>
+
+            <Label Text="Read All Result" FontSize="18" FontAttributes="Bold" />
+            <Editor x:Name="ResultEditor"
+                    AutoSize="TextChanges"
+                    HeightRequest="280"
+                    IsReadOnly="True"
+                    FontFamily="OpenSansRegular" />
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

@@ -66,7 +66,6 @@
   * @note   the system clock is configured as follow:
   *         system clock (sclk)   = hick / 12 * pll_mult
   *         system clock source   = HICK_VALUE
-  *         - hext                = HEXT_VALUE
   *         - sclk                = 200000000
   *         - ahbdiv              = 1
   *         - ahbclk              = 200000000
@@ -84,37 +83,11 @@ void wk_system_clock_config(void)
   /* reset crm */
   crm_reset();
 
-  /* enable pwc periph clock */
-  crm_periph_clock_enable(CRM_PWC_PERIPH_CLOCK, TRUE);
-  /* enable battery powered domain access */
-  pwc_battery_powered_domain_access(TRUE);
-
-  /* check lext enabled or not */
-  if(crm_flag_get(CRM_LEXT_STABLE_FLAG) == RESET)
-  {
-    crm_clock_source_enable(CRM_CLOCK_SOURCE_LEXT, TRUE);
-    while(crm_flag_get(CRM_LEXT_STABLE_FLAG) == RESET)
-    {
-    }
-  }
-  /* disable battery powered domain access */
-  pwc_battery_powered_domain_access(FALSE);
-  /* disable pwc periph clock */
-  crm_periph_clock_enable(CRM_PWC_PERIPH_CLOCK, FALSE);
-
   /* enable lick */
   crm_clock_source_enable(CRM_CLOCK_SOURCE_LICK, TRUE);
 
   /* wait till lick is ready */
   while(crm_flag_get(CRM_LICK_STABLE_FLAG) != SET)
-  {
-  }
-
-  /* enable hext */
-  crm_clock_source_enable(CRM_CLOCK_SOURCE_HEXT, TRUE);
-
-  /* wait till hext is ready */
-  while(crm_hext_stable_wait() == ERROR)
   {
   }
 
@@ -186,11 +159,11 @@ void wk_periph_clock_config(void)
   /* enable gpiod periph clock */
   crm_periph_clock_enable(CRM_GPIOD_PERIPH_CLOCK, TRUE);
 
+  /* enable gpiof periph clock */
+  crm_periph_clock_enable(CRM_GPIOF_PERIPH_CLOCK, TRUE);
+
   /* enable adc1 periph clock */
   crm_periph_clock_enable(CRM_ADC1_PERIPH_CLOCK, TRUE);
-
-  /* enable adc2 periph clock */
-  crm_periph_clock_enable(CRM_ADC2_PERIPH_CLOCK, TRUE);
 
   /* enable usart1 periph clock */
   crm_periph_clock_enable(CRM_USART1_PERIPH_CLOCK, TRUE);
@@ -203,6 +176,17 @@ void wk_periph_clock_config(void)
 
   /* enable i2c1 periph clock */
   crm_periph_clock_enable(CRM_I2C1_PERIPH_CLOCK, TRUE);
+}
+
+/**
+  * @brief  init debug function.
+  * @param  none
+  * @retval none
+  */
+void wk_debug_config(void)
+{
+  /* jtag-dp disabled and sw-dp enabled */
+  gpio_pin_remap_config(SWJTAG_GMUX_010, TRUE);
 }
 
 /**
@@ -222,6 +206,418 @@ void wk_nvic_config(void)
   NVIC_SetPriority(PendSV_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 15, 0));
   NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 15, 0));
   nvic_irq_enable(ADC1_2_IRQn, 5, 0);
+}
+
+/**
+  * @brief  init gpio_input/gpio_output/gpio_analog/eventout function.
+  * @param  none
+  * @retval none
+  */
+void wk_gpio_config(void)
+{
+  /* add user code begin gpio_config 0 */
+
+  /* add user code end gpio_config 0 */
+
+  gpio_init_type gpio_init_struct;
+  gpio_default_para_init(&gpio_init_struct);
+
+  /* add user code begin gpio_config 1 */
+
+  /* add user code end gpio_config 1 */
+
+  /* gpio input config */
+  gpio_init_struct.gpio_mode = GPIO_MODE_INPUT;
+  gpio_init_struct.gpio_pins = GPIO_PINS_0 | GPIO_PINS_1 | GPIO_PINS_5 | GPIO_PINS_6;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init(GPIOC, &gpio_init_struct);
+
+  gpio_init_struct.gpio_mode = GPIO_MODE_INPUT;
+  gpio_init_struct.gpio_pins = GPIO_PINS_10 | GPIO_PINS_11 | GPIO_PINS_14 | GPIO_PINS_15 | GPIO_PINS_3;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init(GPIOB, &gpio_init_struct);
+
+  gpio_init_struct.gpio_mode = GPIO_MODE_INPUT;
+  gpio_init_struct.gpio_pins = GPIO_PINS_11 | GPIO_PINS_12;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init(GPIOA, &gpio_init_struct);
+
+  /* gpio output config */
+  gpio_bits_reset(GPIOC, GPIO_PINS_2 | GPIO_PINS_3 | GPIO_PINS_4 | GPIO_PINS_7 | GPIO_PINS_8 | 
+                  GPIO_PINS_9);
+  gpio_bits_reset(GPIOA, GPIO_PINS_3 | GPIO_PINS_4 | GPIO_PINS_5 | GPIO_PINS_7 | GPIO_PINS_8 | 
+                  GPIO_PINS_15);
+  gpio_bits_reset(GPIOD, GPIO_PINS_2);
+  gpio_bits_reset(GPIOB, GPIO_PINS_4 | GPIO_PINS_5 | GPIO_PINS_7);
+
+  gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+  gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
+  gpio_init_struct.gpio_mode = GPIO_MODE_OUTPUT;
+  gpio_init_struct.gpio_pins = GPIO_PINS_2 | GPIO_PINS_3 | GPIO_PINS_4 | GPIO_PINS_7 | GPIO_PINS_8 | 
+                               GPIO_PINS_9;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init(GPIOC, &gpio_init_struct);
+
+  gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+  gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
+  gpio_init_struct.gpio_mode = GPIO_MODE_OUTPUT;
+  gpio_init_struct.gpio_pins = GPIO_PINS_3 | GPIO_PINS_4 | GPIO_PINS_5 | GPIO_PINS_7 | GPIO_PINS_8 | 
+                               GPIO_PINS_15;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init(GPIOA, &gpio_init_struct);
+
+  gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+  gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
+  gpio_init_struct.gpio_mode = GPIO_MODE_OUTPUT;
+  gpio_init_struct.gpio_pins = GPIO_PINS_2;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init(GPIOD, &gpio_init_struct);
+
+  gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+  gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
+  gpio_init_struct.gpio_mode = GPIO_MODE_OUTPUT;
+  gpio_init_struct.gpio_pins = GPIO_PINS_4 | GPIO_PINS_5 | GPIO_PINS_7;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init(GPIOB, &gpio_init_struct);
+
+  /* gpio analog config */
+  gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
+  gpio_init_struct.gpio_pins = GPIO_PINS_13 | GPIO_PINS_14 | GPIO_PINS_15 | GPIO_PINS_10 | GPIO_PINS_11 | 
+                               GPIO_PINS_12;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init(GPIOC, &gpio_init_struct);
+
+  gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
+  gpio_init_struct.gpio_pins = GPIO_PINS_0 | GPIO_PINS_1;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init(GPIOD, &gpio_init_struct);
+
+  gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
+  gpio_init_struct.gpio_pins = GPIO_PINS_4 | GPIO_PINS_5 | GPIO_PINS_6 | GPIO_PINS_7;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init(GPIOF, &gpio_init_struct);
+
+  gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
+  gpio_init_struct.gpio_pins = GPIO_PINS_2 | GPIO_PINS_12 | GPIO_PINS_13;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init(GPIOB, &gpio_init_struct);
+
+  gpio_pin_remap_config(PD01_GMUX, TRUE);
+
+  /* add user code begin gpio_config 2 */
+
+  /* add user code end gpio_config 2 */
+}
+
+/**
+  * @brief  init i2c1 function.
+  * @param  none
+  * @retval none
+  */
+void wk_i2c1_init(void)
+{
+  /* add user code begin i2c1_init 0 */
+
+  /* add user code end i2c1_init 0 */
+
+  gpio_init_type gpio_init_struct;
+
+  gpio_default_para_init(&gpio_init_struct);
+
+  /* add user code begin i2c1_init 1 */
+
+  /* add user code end i2c1_init 1 */
+
+  /* configure the SCL pin */
+  gpio_init_struct.gpio_out_type = GPIO_OUTPUT_OPEN_DRAIN;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init_struct.gpio_mode = GPIO_MODE_MUX;
+  gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+  gpio_init_struct.gpio_pins = GPIO_PINS_8;
+  gpio_init(GPIOB, &gpio_init_struct);
+
+  /* configure the SDA pin */
+  gpio_init_struct.gpio_out_type = GPIO_OUTPUT_OPEN_DRAIN;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init_struct.gpio_mode = GPIO_MODE_MUX;
+  gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+  gpio_init_struct.gpio_pins = GPIO_PINS_9;
+  gpio_init(GPIOB, &gpio_init_struct);
+
+  gpio_pin_remap_config(I2C1_GMUX_0001, TRUE);
+
+  i2c_init(I2C1, I2C_FSMODE_DUTY_2_1, 100000);
+  i2c_own_address1_set(I2C1, I2C_ADDRESS_MODE_7BIT, 0x0);
+  i2c_ack_enable(I2C1, TRUE);
+  i2c_clock_stretch_enable(I2C1, TRUE);
+  i2c_general_call_enable(I2C1, FALSE);
+
+  /* add user code begin i2c1_init 2 */
+
+  /* add user code end i2c1_init 2 */
+
+  i2c_enable(I2C1, TRUE);
+
+  /* add user code begin i2c1_init 3 */
+
+  /* add user code end i2c1_init 3 */
+}
+
+/**
+  * @brief  init usart1 function
+  * @param  none
+  * @retval none
+  */
+void wk_usart1_init(void)
+{
+  /* add user code begin usart1_init 0 */
+
+  /* add user code end usart1_init 0 */
+
+  gpio_init_type gpio_init_struct;
+  gpio_default_para_init(&gpio_init_struct);
+
+  /* add user code begin usart1_init 1 */
+
+  /* add user code end usart1_init 1 */
+
+  /* configure the TX pin */
+  gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+  gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
+  gpio_init_struct.gpio_mode = GPIO_MODE_MUX;
+  gpio_init_struct.gpio_pins = GPIO_PINS_9;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init(GPIOA, &gpio_init_struct);
+
+  /* configure the RX pin */
+  gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+  gpio_init_struct.gpio_out_type  = GPIO_OUTPUT_PUSH_PULL;
+  gpio_init_struct.gpio_mode = GPIO_MODE_INPUT;
+  gpio_init_struct.gpio_pins = GPIO_PINS_10;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init(GPIOA, &gpio_init_struct);
+
+  /* configure param */
+  usart_init(USART1, 115200, USART_DATA_8BITS, USART_STOP_1_BIT);
+  usart_transmitter_enable(USART1, TRUE);
+  usart_receiver_enable(USART1, TRUE);
+  usart_parity_selection_config(USART1, USART_PARITY_NONE);
+
+  usart_hardware_flow_control_set(USART1, USART_HARDWARE_FLOW_NONE);
+
+  /* add user code begin usart1_init 2 */
+
+  /* add user code end usart1_init 2 */
+
+  usart_enable(USART1, TRUE);
+
+  /* add user code begin usart1_init 3 */
+
+  /* add user code end usart1_init 3 */
+}
+
+/**
+  * @brief  init tmr4 function.
+  * @param  none
+  * @retval none
+  */
+void wk_tmr4_init(void)
+{
+  /* add user code begin tmr4_init 0 */
+
+  /* add user code end tmr4_init 0 */
+
+  gpio_init_type gpio_init_struct;
+  tmr_output_config_type tmr_output_struct;
+
+  gpio_default_para_init(&gpio_init_struct);
+
+  /* add user code begin tmr4_init 1 */
+
+  /* add user code end tmr4_init 1 */
+
+  /* configure the CH1 pin */
+  gpio_init_struct.gpio_pins = GPIO_PINS_6;
+  gpio_init_struct.gpio_mode = GPIO_MODE_MUX;
+  gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+  gpio_init(GPIOB, &gpio_init_struct);
+
+  /* configure counter settings */
+  tmr_cnt_dir_set(TMR4, TMR_COUNT_UP);
+  tmr_clock_source_div_set(TMR4, TMR_CLOCK_DIV1);
+  tmr_period_buffer_enable(TMR4, FALSE);
+  tmr_base_init(TMR4, 19999, 0);
+
+  /* configure primary mode settings */
+  tmr_sub_sync_mode_set(TMR4, FALSE);
+  tmr_primary_mode_select(TMR4, TMR_PRIMARY_SEL_RESET);
+
+  /* configure channel 1 output settings */
+  tmr_output_struct.oc_mode = TMR_OUTPUT_CONTROL_OFF;
+  tmr_output_struct.oc_output_state = TRUE;
+  tmr_output_struct.occ_output_state = FALSE;
+  tmr_output_struct.oc_polarity = TMR_OUTPUT_ACTIVE_HIGH;
+  tmr_output_struct.occ_polarity = TMR_OUTPUT_ACTIVE_HIGH;
+  tmr_output_struct.oc_idle_state = FALSE;
+  tmr_output_struct.occ_idle_state = FALSE;
+  tmr_output_channel_config(TMR4, TMR_SELECT_CHANNEL_1, &tmr_output_struct);
+  tmr_channel_value_set(TMR4, TMR_SELECT_CHANNEL_1, 0);
+  tmr_output_channel_buffer_enable(TMR4, TMR_SELECT_CHANNEL_1, FALSE);
+
+
+  tmr_counter_enable(TMR4, TRUE);
+
+  /* add user code begin tmr4_init 2 */
+
+  /* add user code end tmr4_init 2 */
+}
+
+/**
+  * @brief  init tmr5 function.
+  * @param  none
+  * @retval none
+  */
+void wk_tmr5_init(void)
+{
+  /* add user code begin tmr5_init 0 */
+
+  /* add user code end tmr5_init 0 */
+
+  gpio_init_type gpio_init_struct;
+  tmr_output_config_type tmr_output_struct;
+
+  gpio_default_para_init(&gpio_init_struct);
+
+  /* add user code begin tmr5_init 1 */
+
+  /* add user code end tmr5_init 1 */
+
+  /* configure the CH3 pin */
+  gpio_init_struct.gpio_pins = GPIO_PINS_2;
+  gpio_init_struct.gpio_mode = GPIO_MODE_MUX;
+  gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+  gpio_init(GPIOA, &gpio_init_struct);
+
+  /* configure counter settings */
+  tmr_cnt_dir_set(TMR5, TMR_COUNT_UP);
+  tmr_clock_source_div_set(TMR5, TMR_CLOCK_DIV1);
+  tmr_period_buffer_enable(TMR5, FALSE);
+  tmr_base_init(TMR5, 19999, 0);
+
+  /* configure primary mode settings */
+  tmr_sub_sync_mode_set(TMR5, FALSE);
+  tmr_primary_mode_select(TMR5, TMR_PRIMARY_SEL_RESET);
+
+  /* configure channel 3 output settings */
+  tmr_output_struct.oc_mode = TMR_OUTPUT_CONTROL_OFF;
+  tmr_output_struct.oc_output_state = TRUE;
+  tmr_output_struct.occ_output_state = FALSE;
+  tmr_output_struct.oc_polarity = TMR_OUTPUT_ACTIVE_HIGH;
+  tmr_output_struct.occ_polarity = TMR_OUTPUT_ACTIVE_HIGH;
+  tmr_output_struct.oc_idle_state = FALSE;
+  tmr_output_struct.occ_idle_state = FALSE;
+  tmr_output_channel_config(TMR5, TMR_SELECT_CHANNEL_3, &tmr_output_struct);
+  tmr_channel_value_set(TMR5, TMR_SELECT_CHANNEL_3, 0);
+  tmr_output_channel_buffer_enable(TMR5, TMR_SELECT_CHANNEL_3, FALSE);
+
+  tmr_counter_enable(TMR5, TRUE);
+
+  /* add user code begin tmr5_init 2 */
+
+  /* add user code end tmr5_init 2 */
+}
+
+/**
+  * @brief  init adc1 function.
+  * @param  none
+  * @retval none
+  */
+void wk_adc1_init(void)
+{
+  /* add user code begin adc1_init 0 */
+
+  /* add user code end adc1_init 0 */
+
+  gpio_init_type gpio_init_struct;
+  adc_base_config_type adc_base_struct;
+
+  gpio_default_para_init(&gpio_init_struct);
+
+  /* add user code begin adc1_init 1 */
+
+  /* add user code end adc1_init 1 */
+
+  /*gpio--------------------------------------------------------------------*/ 
+  /* configure the IN0 pin */
+  gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
+  gpio_init_struct.gpio_pins = GPIO_PINS_0;
+  gpio_init(GPIOA, &gpio_init_struct);
+
+  /* configure the IN1 pin */
+  gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
+  gpio_init_struct.gpio_pins = GPIO_PINS_1;
+  gpio_init(GPIOA, &gpio_init_struct);
+
+  /* configure the IN6 pin */
+  gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
+  gpio_init_struct.gpio_pins = GPIO_PINS_6;
+  gpio_init(GPIOA, &gpio_init_struct);
+
+  /* configure the IN8 pin */
+  gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
+  gpio_init_struct.gpio_pins = GPIO_PINS_0;
+  gpio_init(GPIOB, &gpio_init_struct);
+
+  /* configure the IN9 pin */
+  gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
+  gpio_init_struct.gpio_pins = GPIO_PINS_1;
+  gpio_init(GPIOB, &gpio_init_struct);
+
+  adc_reset(ADC1);
+  crm_adc_clock_div_set(CRM_ADC_DIV_4);
+
+  /*adc_common_settings-------------------------------------------------------------*/ 
+  adc_combine_mode_select(ADC_INDEPENDENT_MODE);
+
+  /*adc_settings--------------------------------------------------------------------*/ 
+  adc_base_default_para_init(&adc_base_struct);
+  adc_base_struct.sequence_mode = FALSE;
+  adc_base_struct.repeat_mode = FALSE;
+  adc_base_struct.data_align = ADC_RIGHT_ALIGNMENT;
+  adc_base_struct.ordinary_channel_length = 1;
+  adc_base_config(ADC1, &adc_base_struct);
+
+  /* adc_ordinary_conversionmode-------------------------------------------- */
+  adc_ordinary_channel_set(ADC1, ADC_CHANNEL_6, 1, ADC_SAMPLETIME_239_5);
+
+  /* When "ADCx_ORDINARY_TRIG_SOFTWARE" is selected, user can only use software trigger. \
+  The software trigger function is adc_ordinary_software_trigger_enable(ADCx, TRUE); */
+  adc_ordinary_conversion_trigger_set(ADC1, ADC12_ORDINARY_TRIG_SOFTWARE, TRUE);
+
+  adc_ordinary_part_mode_enable(ADC1, FALSE);
+
+  /* enable channels conversion end interrupt */
+  adc_interrupt_enable(ADC1, ADC_CCE_INT, TRUE);
+
+  /* add user code begin adc1_init 2 */
+
+  /* add user code end adc1_init 2 */
+
+  adc_enable(ADC1, TRUE);
+  
+  /* adc calibration-------------------------------------------------------- */
+  adc_calibration_init(ADC1);
+  while(adc_calibration_init_status_get(ADC1));
+  adc_calibration_start(ADC1);
+  while(adc_calibration_status_get(ADC1));
+
+  /* add user code begin adc1_init 3 */
+
+  /* add user code end adc1_init 3 */
 }
 
 /* add user code begin 1 */

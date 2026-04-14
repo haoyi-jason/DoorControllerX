@@ -1,22 +1,34 @@
 ---
-title: DoorControllerX
-
+name: DoorControllerX
+description: create a PID based controller for door open/close and door-lock control
 ---
 
 # DoorControllerX
-## 目標
-- 建立一個利用PID進行DC馬達控制門扇開關的控制器
-- Repo: @haoyi-jason/DoorControllerX
 
-## 需求說明
-### 系統架構
+## Goals
+- 設計一個可以控制2個門(主/副)以及1個門鎖的控制器
+- 主/副門馬達及門鎖採用TI DRV8242 驅動器控制, 驅動器透過繼電器控制馬達及門鎖
+- 主門由獨立的驅動器驅動
+- 副門及門鎖共用一個驅動器
+- 主門及副門具備原點偵測(數位訊號)及位置感測器(類比訊號)
+- 門鎖具備上鎖及解鎖位置偵測(數位訊號)
+- 主門/副門採用PID位置計算控罝PWM輸出
+- 門鎖採用PWM定值控制, 最大50%輸出
+
+## 硬體平台及工具鏈
+- MCU AT32F413R
+- 馬達驅動IC: TI DRV8242, 採用EN(PWM)/PH(DIR) 控制
+- 開發環境: AT32IDE/FreeRTOS/AT32 STL
+- 主要週邊: PWM/UART/ADC
+
+## 定義
 - 主門馬達(M1)
 - 主門位置感測(M1_POT)
 - 主門原點感測(M1_HOME)
-- 副門馬達(M2) (optional)
+- 副門馬達(M2)
 - 副門位置感測器(M2_POT)
 - 副門原點感測器(M2_HOME)
-- 電鎖x1(M3) (optional)
+- 電鎖x1(M3)
 - 電鎖下鎖感測器(M3_LL)
 - 電鎖解鎖感測器(M3_UL)
 - 蜂鳴器(BZ1)
@@ -27,17 +39,8 @@ title: DoorControllerX
 - 4-bit DIP Switch功能設定(DIP[0:3])
 - 通訊(UART1)
 
-## 硬體平台
-- MCU AT32F413R
-- 馬達驅動IC: TI DRV-8242, 採用EN(PWM)/PH(DIR) 控制
-- 開發環境: AT32IDE/gcc/FreeRTOS/AT32 STL
-- 主要週邊: PWM/UART/ADC
 
-### 輸出/輸入及週邊規劃對應
-
-
-#### 接腳定義
-
+## 接腳定義
 
 | PIN | Function | ASSIGN TO| 
 | -------- | -------- | -------- | 
@@ -88,26 +91,24 @@ title: DoorControllerX
 | PD2     | Digital Out |LED1    | 
 
 
-### DIP SWITCH 功能
+## DIP SWITCH 功能
 - DIP_0: 正轉(D1 PH=1, D2 PH=0)/反轉(D1 PH=0, D2 PH=1) (0/1)
 - DIP_1: 無電鎖(0)/有電鎖(1), 電鎖上鎖:D2 PH=1, 解鎖:D2 PH=0
 - DIP_2: 只使用M1(0), 同時使用M1/M2(1)
 - DIP_3: 未使用
 
-### 控制
+## 控制
 
-#### 上電流程
+### 上電流程
 ```graphviz
 digraph powerup_hierarchy {
-//node [color=Red,fontname=Courier,shape=box] 
-//edge [color=Blue, style=dashed] 
 POR_RESET->READ_DIP -> CHECK_FUNCTION->WAIT_COMMAND
 
 }
 ```
 
-#### 電機驅動程序
-D1/D2 : 驅動IC(DRV8232)
+### 馬達驅動程序
+D1/D2 : 驅動IC(DRV8242)
 R1/R2/R3: 繼電器
 M1/M2: 主門/副門驅動電機, 使用PID做位置控制
 M3: 電鎖電機, PWM控制, 單一設置輸出, 僅控制方向及PWM DUTY, 作動時間.
@@ -115,7 +116,6 @@ M3: 電鎖電機, PWM控制, 單一設置輸出, 僅控制方向及PWM DUTY, 作
 ```graphviz
 digraph motor_hierarchy {
 node [color=Red,fontname=Courier,shape=box] 
-//edge [color=Blue, style=dashed] 
 
 D1->R1->M1->MD1
 D2->R2->M2->MD2
@@ -125,7 +125,7 @@ D2->R3->M3->LOCK
 ```
 
 
-#### 馬達操作程序:
+### 馬達操作程序:
 ``` flow
 st=>start: 開始
 op1=>operation: R1 Active
@@ -155,8 +155,8 @@ st->op1->op2->op3->e
 ```
 
 
-#### 門扇控制流程 - 主門開啟
-##### 無電鎖
+## 門扇控制流程 - 主門開啟
+### 無電鎖
 ```flow
 st=>start: 開始
 op1=>operation: 開門
@@ -164,7 +164,7 @@ e=>end: 結束
 st->op1->e
 ```
 
-##### 有電鎖
+### 有電鎖
 ```flow
 st=>start: 開始
 op1=>operation: M1反轉, PWM1=M1_OPEN_REV_DUTY
@@ -184,8 +184,8 @@ cd2(no)->op3->op1
 cd3(yes)->e
 cd3(no)->op5
 ```
-#### 門扇動作流程 - 主門關閉
-##### 無電鎖
+## 門扇動作流程 - 主門關閉
+### 無電鎖
 ```flow
 st=>start: 開始
 op1=>operation: M1 PWM1 反轉, PID位置控制, 更新PWM輸出
@@ -199,7 +199,7 @@ cd2(yes)->e
 cd2(no)->op1
 ```
 
-##### 有電鎖
+### 有電鎖
 ```flow
 st=>start: 開始
 op1=>operation: M1 PWM1 反轉, PID位置控制, 更新PWM輸出
@@ -207,7 +207,7 @@ op2=>operation: M3上鎖
 op3=>operation: M1 PWM1 += M1_CLOSE_FWD_DUTY_DELTA
 op4=>operation: Beep
 op5=>operation: M1 PWM1 = M1_CLOSE_FWD_DUTY
-op6=>operation: Wait T = 
+op6=>operation: Wait T = M1_CLOSE_FWD_DELAY
 cd1=>condition: M1到達原點(Z1 = 1)
 cd2=>condition: M1位置<原點誤差
 cd3=>condition: M3上鎖成功?
@@ -225,7 +225,7 @@ cd4(no)->op3
 op6->op2->cd3
 ```
 
-#### 門扇動作流程 - 副門開啟
+### 門扇動作流程 - 副門開啟
 ``` flow
 st=>start: 開始
 op1=>operation: 讀取M1_POS, M2_POS
@@ -245,7 +245,7 @@ cd3(yes)->e
 cd3(no)->op5
 
 ```
-#### 門扇動作流程 - 副門關閉
+### 門扇動作流程 - 副門關閉
 ``` flow
 st=>start: 開始
 op1=>operation: 讀取M1_POS, M2_POS
@@ -253,7 +253,7 @@ op2=>operation: 開門至設定角度
 op3=>operation: M1 PWM增量
 op4=>operation: BEEP
 op5=>operation: M2 PWM2 反轉, PID位置控制, 更新PWM輸出
-cd1=>condition: (M2_POS - M1_POS) > CLOSE_DIFF_ANGLE
+cd1=>condition: (M2_POS - M1_POS) > OPEN_DIFF_ANGLE
 cd2=>condition: 重試>3
 cd3=>condition: (M2_POS < M2_HOME_ERROR)? || M2_HOME = 1
 e=>end: 結束
@@ -265,7 +265,7 @@ cd3(yes)->e
 cd3(no)->op5
 ```
 
-#### 門扇動作流程 - 阻擋
+### 門扇動作流程 - 阻擋
 在門扇(M1/M2)運作的過程中需判斷阻擋(由T1->T2(BLOCK_DETECT_TIME)運行角度增量<BLOCK_DETECT_ANGLE)
 
 ``` flow
@@ -291,36 +291,42 @@ cd4(yes)->op4->op5->e
 cd4(no)->e
 ```
 
-#### 電鎖流程
+## 電鎖流程
 - 電鎖在執行上鎖/解鎖控制後, 需等待LOCK_ACTIVE_TIME後才可執行下一個程序, LOCK_ACTIVE_TIME的單位為0.1秒
 - 電鎖馬達M3驅動時只控制方向, 輸出數值階為M3_START_DUTY, 不得超過M3_MAX_DUTY
 
-#### 電鎖錯誤
-- 上鎖後 IDI_0 未偵測到位
-- 下鎖後 IDI_1 未偵測到位
-- 上/下鎖後 IDI_0/IDI_1 偵測錯位
+### 電鎖錯誤
+- 上鎖後 M3_LL 未偵測到位
+- 下鎖後 M3_UL 未偵測到位
+- 上/下鎖後 M3_LL/M3_UL 偵測錯位
 
-#### M1/M2 POT to POS 轉換
+### M1/M2 POT to POS 轉換
 - M1_POS = M1_POTx360/4096
 - M2_POS = M2_POTx360/4096
 
-#### M1/M2 工作電流轉換(ignored)
+### M1/M2 工作電流轉換(ignored)
 
-#### M1/M2 PWM 輸出(%), 在PID運算後需依設定限制上/下限值
+### M1/M2 PWM 輸出(%), 在PID運算後需依設定限制上/下限值
 - M1 輸出起始值: M1_START_DUTY
 - M1 輸出最大值: M1_MAX_DUTY
 - M2 輸出起始值: M2_START_DUTY
 - M2 輸出最大值: M2_MAX_DUTY
 
-#### 狀態機
+## 狀態機
 - 系統需以狀態機的模型運作, 以確保固定運算週期.
 - 狀態機週期為 TIME_WINDOW, 單位為ms.
 
-#### 通訊
+## 通訊
 - 通訊採用UART1, 預設115200 N81N
-- 協定採用Binary Protocol, 依照repo @haoyi-jason/Renesas_Common/BinrayProtocol  以及@haoyi-jason/Renesas_Common/Database 建立
+- 協定採用Binary Protocol
+- 參考
+    - reference\bin_protocol_lite.c/h
+    - refrernce\database.c/h
 
-#### EEPROM參數 (DF_)
+## EEPROM參數 (DF_)
+- 使用MCU Flash 做為資料儲存空間
+- 參考
+    - reference\at32_common\
 
 
 
@@ -338,19 +344,20 @@ cd4(no)->e
 | M2_START_DUTY | U8 | 1  | 90| 20 | M1啟動 DUTY CYCLE |
 | M2_MAX_DUTY | U8 | 1  | 90| 20 | M1輸出最大 DUTY CYCLE |
 | M3_START_DUTY | U8 | 1  | 90| 20 | M1啟動 DUTY CYCLE |
-| M3_MAX_DUTY | U8 | 1  | 90| 20 | M1輸出最大 DUTY CYCLE |
+| M3_MAX_DUTY | U8 | 1  | 50| 20 | M1輸出最大 DUTY CYCLE |
 | M1_OPEN_ANGLE | U8 | 50  | 120| 100 | M1開啟角度 |
 | M2_OPEN_ANGLE | U8 | 50  | 120| 100 | M2開啟角度 |
 | M1_OPEN_REV_DUTY | U8 | 50  | 120| 100 | M1開門前反向輸出值 |
 | M1_OPEN_REV_DUTY_DELTA | U8 | 50  | 120| 100 | M1開門前反向輸出增值 |
 | M1_CLOSE_FWD_DUTY | U8 | 50  | 120| 100 | M1關門後正向輸出值 |
 | M1_CLOSE_FWD_DUTY_DELTA | U8 | 50  | 120| 100 | M1關門後正向輸出增值 |
+| M1_CLOSE_FWD_DELAY | U8 | 0  | 10| 2 | M1關門反向延時(s) |
 | M1_ZERO_ERROR | U8 | 50  | 120| 100 | M1原點允許誤差 |
 | M2_ZERO_ERROR | U8 | 50  | 120| 100 | M2原點允許誤差 |
 | MAX_OPEN_OPERATION_TIME | U8 | 50  | 120| 100 | 最大允許開門時間 |
 
 
-#### 執行期參數(LD_)
+## 執行期參數(LD_)
 | 名稱 | 型態 | 最小值 | 最大值| 預設值 |說明|
 | -------- | -------- | -------- | --- | --- | --- |
 | LIVE_DATA_MD_STATE | U8 | 1  | 10| 1 | 門扇被阻擋時 |
@@ -379,7 +386,7 @@ cd4(no)->e
 | LIVE_DATA_SD_CURRENT | F32 | 1  | 10| 1 | 門扇被阻擋時 |
 
 
-### 預期結果
+## 預期結果
 
 - 接收"TG_Open"訊號執行開門程序
 - 判斷M1_POS > OPEN_TRIGGER_ANGLE時, 執行開門程序

@@ -1,0 +1,12 @@
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Core\bin\Debug\net9.0\DoorControllerXHost.Core.deps.json
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Core\bin\Debug\net9.0\DoorControllerXHost.Core.dll
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Core\bin\Debug\net9.0\DoorControllerXHost.Core.pdb
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Core\obj\Debug\net9.0\DoorControllerXHost.Core.GeneratedMSBuildEditorConfig.editorconfig
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Core\obj\Debug\net9.0\DoorControllerXHost.Core.AssemblyInfoInputs.cache
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Core\obj\Debug\net9.0\DoorControllerXHost.Core.AssemblyInfo.cs
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Core\obj\Debug\net9.0\DoorControllerXHost.Core.csproj.CoreCompileInputs.cache
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Core\obj\Debug\net9.0\DoorControllerXHost.Core.sourcelink.json
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Core\obj\Debug\net9.0\DoorControllerXHost.Core.dll
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Core\obj\Debug\net9.0\refint\DoorControllerXHost.Core.dll
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Core\obj\Debug\net9.0\DoorControllerXHost.Core.pdb
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Core\obj\Debug\net9.0\ref\DoorControllerXHost.Core.dll

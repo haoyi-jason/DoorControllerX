@@ -31,10 +31,12 @@ static sys_state_t  sys_state   = SYS_STATE_INIT;
 static door_state_t m1_state    = DOOR_IDLE;
 static door_state_t m2_state    = DOOR_IDLE;
 
-static pid_t pid_m1;
-static pid_t pid_m2;
+static _pid_t pid_m1;
+static _pid_t pid_m2;
 
 static uint32_t operation_start_tick = 0u;  /* used for timeout check */
+static sys_state_t blocked_from_state = SYS_STATE_WAIT;
+static uint32_t blocked_retry_count = 0u;
 
 /* Private helpers -----------------------------------------------------------*/
 
@@ -89,10 +91,15 @@ void door_ctrl_init(void)
     sys_state = SYS_STATE_WAIT;
     m1_state  = DOOR_IDLE;
     m2_state  = DOOR_IDLE;
+    blocked_from_state = SYS_STATE_WAIT;
+    blocked_retry_count = 0u;
 
     db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
     db_set_live(LD_M1_STATE,  (uint32_t)m1_state);
     db_set_live(LD_M2_STATE,  (uint32_t)m2_state);
+    db_set_live(LD_BLOCK_COUNT, 0u);
+    db_set_live(LD_BLOCK_RETRY_COUNT, 0u);
+    db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
 }
 
 /**
@@ -361,8 +368,10 @@ void door_main_open(void)
                     vTaskDelay(pdMS_TO_TICKS(200));
                     door_beep(300);
                     m1_state  = DOOR_BLOCKED;
+                    blocked_from_state = SYS_STATE_OPENING;
                     sys_state = SYS_STATE_BLOCKED;
                     db_set_live(LD_M1_STATE,  (uint32_t)m1_state);
+                    db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
                     db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
                     return;
                 }
@@ -456,8 +465,10 @@ void door_main_close(void)
                     vTaskDelay(pdMS_TO_TICKS(200));
                     door_beep(300);
                     m1_state  = DOOR_BLOCKED;
+                    blocked_from_state = SYS_STATE_CLOSING;
                     sys_state = SYS_STATE_BLOCKED;
                     db_set_live(LD_M1_STATE,  (uint32_t)m1_state);
+                    db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
                     db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
                     return;
                 }
@@ -591,8 +602,10 @@ void door_sub_open(void)
                     vTaskDelay(pdMS_TO_TICKS(200));
                     door_beep(300);
                     m2_state  = DOOR_BLOCKED;
+                    blocked_from_state = SYS_STATE_OPENING;
                     sys_state = SYS_STATE_BLOCKED;
                     db_set_live(LD_M2_STATE,  (uint32_t)m2_state);
+                    db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
                     db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
                     return;
                 }
@@ -685,8 +698,10 @@ void door_sub_close(void)
                     vTaskDelay(pdMS_TO_TICKS(200));
                     door_beep(300);
                     m2_state  = DOOR_BLOCKED;
+                    blocked_from_state = SYS_STATE_CLOSING;
                     sys_state = SYS_STATE_BLOCKED;
                     db_set_live(LD_M2_STATE,  (uint32_t)m2_state);
+                    db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
                     db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
                     return;
                 }
@@ -749,6 +764,9 @@ void door_ctrl_run(void)
         /* Auto-open trigger: door pushed past trigger angle */
         if (pos >= (float)db_get_param(DF_OPEN_TRIGGER_ANGLE)) {
             db_set_live(LD_BLOCK_COUNT, 0u);
+            blocked_retry_count = 0u;
+            db_set_live(LD_BLOCK_RETRY_COUNT, 0u);
+            db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)SYS_STATE_WAIT);
             operation_start_tick = get_tick_ms();
             sys_state = SYS_STATE_OPENING;
             break;
@@ -757,6 +775,9 @@ void door_ctrl_run(void)
         /* TG_OPEN active (active-low) */
         if (TG_OPEN_READ() == RESET) {
             db_set_live(LD_BLOCK_COUNT, 0u);
+            blocked_retry_count = 0u;
+            db_set_live(LD_BLOCK_RETRY_COUNT, 0u);
+            db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)SYS_STATE_WAIT);
             operation_start_tick = get_tick_ms();
             sys_state = SYS_STATE_OPENING;
         }
@@ -790,6 +811,9 @@ void door_ctrl_run(void)
         if (TG_CLOSE_READ() == RESET) {
             SET_OPEN_DONE(0);
             db_set_live(LD_BLOCK_COUNT, 0u);
+            blocked_retry_count = 0u;
+            db_set_live(LD_BLOCK_RETRY_COUNT, 0u);
+            db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)SYS_STATE_WAIT);
             operation_start_tick = get_tick_ms();
             sys_state = SYS_STATE_CLOSING;
         }
@@ -825,15 +849,37 @@ void door_ctrl_run(void)
 
     /* ---------------------------------------------------------------------- */
     case SYS_STATE_BLOCKED: {
-        /* Retry after BLOCK_RETRY_DELAY_SEC */
+        /* Automatic retry after BLOCK_RETRY_DELAY_SEC.
+           Retry in the same direction as the blocked operation. */
         uint32_t retry_delay_ms = db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u;
         motor_disable(MOTOR_M1);
         motor_disable(MOTOR_M2);
         door_beep(200);
         vTaskDelay(pdMS_TO_TICKS(retry_delay_ms));
-        db_set_live(LD_BLOCK_COUNT, 0u);
-        /* Return to WAIT — operator must re-trigger */
-        sys_state = SYS_STATE_WAIT;
+
+        blocked_retry_count++;
+        db_set_live(LD_BLOCK_RETRY_COUNT, blocked_retry_count);
+        db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
+
+        if (blocked_retry_count > MAX_BLOCK_RETRIES) {
+            door_beep(500);
+            vTaskDelay(pdMS_TO_TICKS(200));
+            door_beep(500);
+            m1_state  = DOOR_ERROR;
+            m2_state  = DOOR_ERROR;
+            sys_state = SYS_STATE_ERROR;
+            db_set_live(LD_M1_STATE,  (uint32_t)m1_state);
+            db_set_live(LD_M2_STATE,  (uint32_t)m2_state);
+            db_set_live(LD_ERROR_CODE, 1u);
+            break;
+        }
+
+        operation_start_tick = get_tick_ms();
+        if (blocked_from_state == SYS_STATE_CLOSING) {
+            sys_state = SYS_STATE_CLOSING;
+        } else {
+            sys_state = SYS_STATE_OPENING;
+        }
         break;
     }
 
@@ -851,7 +897,11 @@ void door_ctrl_run(void)
             sys_state = SYS_STATE_WAIT;
             m1_state  = DOOR_IDLE;
             m2_state  = DOOR_IDLE;
+            blocked_from_state = SYS_STATE_WAIT;
+            blocked_retry_count = 0u;
             db_set_live(LD_ERROR_CODE, 0u);
+            db_set_live(LD_BLOCK_RETRY_COUNT, 0u);
+            db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
         }
         break;
 

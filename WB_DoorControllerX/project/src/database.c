@@ -29,7 +29,7 @@ static df_entry_t df_table[DF_NUM_PARAMS] = {
     /* DF_M2_START_DUTY           */ { 20,   1,  90,  20 },
     /* DF_M2_MAX_DUTY             */ { 80,   1,  90,  80 },
     /* DF_M3_START_DUTY           */ { 30,   1,  90,  30 },
-    /* DF_M3_MAX_DUTY             */ { 60,   1,  90,  60 },
+    /* DF_M3_MAX_DUTY             */ { 50,   1,  50,  50 },
     /* DF_M1_OPEN_ANGLE           */ {100,  50, 120, 100 },
     /* DF_M2_OPEN_ANGLE           */ {100,  50, 120, 100 },
     /* DF_M1_OPEN_REV_DUTY        */ { 20,   5,  50,  20 },

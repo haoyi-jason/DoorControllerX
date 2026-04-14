@@ -1,0 +1,93 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DoorControllerXHost.Maui.MainPage">
+
+    <ScrollView>
+        <VerticalStackLayout
+            Padding="24"
+            Spacing="16">
+            <Label Text="DoorControllerX Host"
+                   FontSize="28"
+                   FontAttributes="Bold" />
+
+            <Label x:Name="PlatformHintLabel"
+                   FontSize="14"
+                   TextColor="Gray" />
+
+                <Grid ColumnDefinitions="Auto,*,Auto"
+                  RowDefinitions="Auto,Auto,Auto"
+                  ColumnSpacing="12"
+                  RowSpacing="12">
+                <Label Grid.Row="0" Grid.Column="0" Text="Endpoint" VerticalTextAlignment="Center" />
+                <Picker x:Name="EndpointPicker"
+                    Grid.Row="0"
+                    Grid.Column="1"
+                    Title="Select endpoint"
+                    ItemDisplayBinding="{Binding DisplayName}"
+                    SelectedIndexChanged="OnEndpointSelectionChanged" />
+                <Button x:Name="RefreshEndpointsButton"
+                    Grid.Row="0"
+                    Grid.Column="2"
+                    Text="Refresh"
+                    Clicked="OnRefreshEndpointsClicked" />
+
+                <Label Grid.Row="1" Grid.Column="0" Text="Manual" VerticalTextAlignment="Center" />
+                <Entry x:Name="EndpointEntry" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Placeholder="COM5 or Bluetooth device name / MAC" />
+
+                <Label Grid.Row="2" Grid.Column="0" Text="Baud" VerticalTextAlignment="Center" />
+                <Entry x:Name="BaudEntry" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Text="115200" Keyboard="Numeric" />
+            </Grid>
+
+            <HorizontalStackLayout Spacing="12">
+                <Button x:Name="ConnectButton" Text="Connect" Clicked="OnConnectClicked" />
+                <Button x:Name="DisconnectButton" Text="Disconnect" Clicked="OnDisconnectClicked" IsEnabled="False" />
+                <Button x:Name="ReadSnapshotButton" Text="Read Snapshot" Clicked="OnReadSnapshotClicked" IsEnabled="False" />
+                <Button x:Name="PollButton" Text="Start Poll" Clicked="OnPollClicked" IsEnabled="False" />
+                <Button x:Name="ParametersButton" Text="Parameters" Clicked="OnParametersClicked" />
+            </HorizontalStackLayout>
+
+            <Grid ColumnDefinitions="*,*"
+                  RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                  ColumnSpacing="12"
+                  RowSpacing="8">
+                <Label Grid.Row="0" Grid.Column="0" Text="System State" FontAttributes="Bold" />
+                <Label x:Name="SysStateValueLabel" Grid.Row="0" Grid.Column="1" Text="-" />
+                <Label Grid.Row="1" Grid.Column="0" Text="Main Door State" FontAttributes="Bold" />
+                <Label x:Name="M1StateValueLabel" Grid.Row="1" Grid.Column="1" Text="-" />
+                <Label Grid.Row="2" Grid.Column="0" Text="Sub Door State" FontAttributes="Bold" />
+                <Label x:Name="M2StateValueLabel" Grid.Row="2" Grid.Column="1" Text="-" />
+                <Label Grid.Row="3" Grid.Column="0" Text="Block Count" FontAttributes="Bold" />
+                <Label x:Name="BlockCountValueLabel" Grid.Row="3" Grid.Column="1" Text="-" />
+                <Label Grid.Row="4" Grid.Column="0" Text="Block Retry Count" FontAttributes="Bold" />
+                <Label x:Name="BlockRetryCountValueLabel" Grid.Row="4" Grid.Column="1" Text="-" />
+                <Label Grid.Row="5" Grid.Column="0" Text="Block Source State" FontAttributes="Bold" />
+                <Label x:Name="BlockSourceStateValueLabel" Grid.Row="5" Grid.Column="1" Text="-" />
+            </Grid>
+
+            <Grid ColumnDefinitions="*,*"
+                  RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                  ColumnSpacing="12"
+                  RowSpacing="8">
+                <Label Grid.Row="0" Grid.Column="0" Text="Error Code" FontAttributes="Bold" />
+                <Label x:Name="ErrorCodeValueLabel" Grid.Row="0" Grid.Column="1" Text="-" />
+                <Label Grid.Row="1" Grid.Column="0" Text="Lock Retry Count" FontAttributes="Bold" />
+                <Label x:Name="LockRetryCountValueLabel" Grid.Row="1" Grid.Column="1" Text="-" />
+                <Label Grid.Row="2" Grid.Column="0" Text="Operation Time" FontAttributes="Bold" />
+                <Label x:Name="OperationTimeValueLabel" Grid.Row="2" Grid.Column="1" Text="-" />
+                <Label Grid.Row="3" Grid.Column="0" Text="Open Count" FontAttributes="Bold" />
+                <Label x:Name="OpenCountValueLabel" Grid.Row="3" Grid.Column="1" Text="-" />
+                <Label Grid.Row="4" Grid.Column="0" Text="Close Count" FontAttributes="Bold" />
+                <Label x:Name="CloseCountValueLabel" Grid.Row="4" Grid.Column="1" Text="-" />
+            </Grid>
+
+            <Label Text="Log" FontSize="18" FontAttributes="Bold" />
+            <Editor x:Name="LogEditor"
+                    AutoSize="TextChanges"
+                    HeightRequest="180"
+                    IsReadOnly="True"
+                    FontFamily="OpenSansRegular" />
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

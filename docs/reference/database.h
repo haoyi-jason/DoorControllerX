@@ -1,0 +1,177 @@
+#ifndef _DATABASE_
+#define _DATABASE_
+// data flash definition lite
+
+
+#define PARAM_INDEX(x)      (x & 0xFF)
+#define PARAM_TYPE(x)       ((x & 0x7F00) >> 12);
+#define NOF_SIGNATURE       4
+#define NOF_SUPPORTED_CELLS 8
+#define LIVE_DATA_MASK		0x8000
+
+
+enum Dataflsh_defines_e{
+    DF_U8_SIGNATURE_1 = 0x00,
+    DF_U8_AFE_NOF_CELL,
+    DF_U8_AFE_NOF_NTC,
+    DF_U8_CUV_DELAY,
+    DF_U8_COV_DELAY,
+    DF_U8_COT_DELAY,
+    DF_U8_CUT_DELAY,
+    DF_U8_OVC_DELAY,
+    DF_U8_UVD_DELAY,
+    DF_U8_OCC_DELAY, 
+    DF_U8_OCD_DELAY, //10
+    DF_U8_BALANCE_GAP,
+    DF_U8_COULOMB_CHECKSUM,
+    DF_U8_SHUNT_RESISTANCE,
+    DF_U8_BALANCE_CONTROL,   // bit 0: balance in charge, bit 1: balance in idle, bit 7: gain 50
+    DF_U8_DCHG_TIMEOUT,		// bit 0: bal in charge, 1: bal in idle
+    DF_U8_AFE_SHORT_PROTECTION,
+    DF_U8_AFE_SHORT_ACTIVE_TIME,
+    DF_U8_AFE_SHORT_DETECTION_ACTION,
+    DF_U8_AFE_TEMP_PROTECTION, 
+    DF_U8_FET_NTC_ID, //20
+    DF_U8_BALANCE_NTC_ID,
+    DF_U8_FET_OT_DELAY,
+	DF_U8_BAL_OT_DELAY,
+	DF_U8_SOC_THRESHOLD,
+	DF_U8_SOC_DELAY,
+	DF_U8_NTC_CONFIG, // bit masked, 1 = parallel, 0 = single, bit 4~7: 0: 10K, 1:100K
+	DF_U8_DCIR_C1,
+	DF_U8_DCIR_C2,
+	DF_U8_DCIR_C3,
+	DF_U8_DCIR_C4, // 30
+	DF_U8_DCIR_C5,
+	DF_U8_DCIR_C6,
+	DF_U8_DCIR_C7,
+	DF_U8_DCIR_C8,
+	DF_U8_DEVICE_ID, // for modbus
+	DF_U8_UART_CONNECTION, // uart parameters
+	DF_U8_CHEMICAL_TYPE, 	// chemical type of cell 0: LFP, 1:NCM
+    NOF_U8_DEFS,
+    DF_U16_CUV_THRESHOLD = 0x1000,
+    DF_U16_CUV_RECOVERY,
+    DF_U16_COV_THRESHOLD,
+    DF_U16_COV_RECOVERY,
+    DF_U16_OVC_THRESHOLD,
+    DF_U16_OVC_RECOVERY,
+    DF_U16_UVD_THRESHOLD,
+    DF_U16_UVD_RECOVERY,
+    DF_U16_MIN_CV_1,
+    DF_U16_MIN_CV_2, //10
+    DF_U16_MIN_CV_3,
+    DF_U16_MIN_CV_4,
+    DF_U16_MIN_CV_5,
+    DF_U16_MIN_CV_6,
+    DF_U16_MIN_CV_7,
+    DF_U16_MIN_CV_8,
+    DF_U16_MAX_CV_1,
+    DF_U16_MAX_CV_2,
+    DF_U16_MAX_CV_3,
+    DF_U16_MAX_CV_4, //20
+    DF_U16_MAX_CV_5,
+    DF_U16_MAX_CV_6,
+    DF_U16_MAX_CV_7,
+    DF_U16_MAX_CV_8,
+    DF_U16_MIN_CT,
+    DF_U16_MAX_CT,
+    DF_U16_BALANCE_CV,
+    DF_U16_FAULT_CV,
+    DF_U16_CHARGE_VOLTAGE_LOW,
+    DF_U16_CHARGE_VOLTAGE_HIGH, // 30
+    DF_U16_CYCLE_COUNTS,
+	DF_U16_FCC_CURRENT,  // fully charged current, when current below this threshold, start downcounting with FCC_COUNT
+	DF_U16_FCC_DELAY,
+	DF_U16_FCC_COUNT,
+	DF_U16_DD_COUNT,
+    DF_U16_PRECHARGE_START_VOLTAGE,
+    DF_U16_PRECHARGE_END_VOLTAGE,
+    DF_U16_QCHG_AH,
+    DF_U16_QDHG_AH,
+    NOF_U16_DEFS,
+    DF_U32_COULOMB_VALUE = 0x2000,
+    DF_U32_Q_IN_MAS,
+    DF_U32_Q_OUT_MAS,
+    DF_U32_Q_MAX_MAS,
+    
+    NOF_U32_DEFS,
+    DF_I8_CV_OFFSET_1 = 0x3000,
+    DF_I8_CV_OFFSET_2,
+    DF_I8_CV_OFFSET_3,
+    DF_I8_CV_OFFSET_4,
+    DF_I8_CV_OFFSET_5,
+    DF_I8_CV_OFFSET_6,
+    DF_I8_CV_OFFSET_7,
+    DF_I8_CV_OFFSET_8,
+    DF_I8_NTC_OFFSET_1,
+    DF_I8_NTC_OFFSET_2,
+    DF_I8_NTC_OFFSET_3,
+    DF_I8_NTC_OFFSET_4,
+    DF_I8_COT_THRESHOLD,
+    DF_I8_COT_RECOVERY,
+    DF_I8_CUT_THRESHOLD,
+    DF_I8_CUT_RECOVERY,
+    DF_I8_FET_OT_THRES,
+    DF_I8_FET_OT_RECOVER,
+    DF_I8_BAL_OT_THRES,
+    DF_I8_BAL_OT_RECOVER,
+    NOF_I8_DEFS,
+    //DF_I16_CHARGE_CURRENT = 0x4000,
+    //DF_I16_DISCHARGE_CURRENT,
+    DF_I16_DCHG_GAP = 0x4000,
+    //DF_I16_OCC_RECOVER_CURRENT,
+    DF_I16_CHARGE_CURRENT_THRESHOLD,
+    DF_I16_DISCHARGE_CURRENT_THRESHOLD,
+    DF_I16_OCC_THRESHOLD,
+    DF_I16_OCC_RECOVERY,
+    DF_I16_OCD_THRESHOLD,
+    DF_I16_OCD_RECOVERY,
+    NOF_I16_DEFS,
+    DF_F32_BATTERY_CAPACITY = 0x6000,
+    //DF_F32_ADC_LSB_CURRENT, // 1 LSB present current, etc. 610uA/LSG = 0.00061
+};
+enum LiveData_defines_e{
+	LD_U8_BALANCE_TARGET = LIVE_DATA_MASK | 0x00,
+	LD_U8_SOC,
+	LD_U8_SOH,
+	LD_U8_BATTERY_STATE,
+	LD_U8_BATTERY_FLAGS,
+	LD_U8_NTC_STATE,
+	LD_U16_CV1 =LIVE_DATA_MASK | 0x1000,
+	LD_U16_CV2,
+	LD_U16_CV3,
+	LD_U16_CV4,
+	LD_U16_CV5,
+	LD_U16_CV6,
+	LD_U16_CV7,
+	LD_U16_CV8,
+	LD_U16_CHARGE_VOLT,
+	LD_U16_BAT_VOLT,
+	LD_U16_ARG1,
+	LD_U16_ARG2,
+	LD_U16_COMMAND,
+	LD_U16_CYCLE_COUNT,
+    LD_U16_CV_MIN,
+    LD_U16_CV_MAX,
+    LD_U16_FW_VER,
+    LD_U16_HW_VER,
+	LD_I8_NTC1 = LIVE_DATA_MASK | 0x3000,
+	LD_I8_NTC2,
+	LD_I8_NTC3,
+	LD_I8_NTC4,
+    LD_I8_CT_MIN,
+    LD_I8_CT_MAX,
+	LD_I16_CURRENT = LIVE_DATA_MASK | 0x4000,	
+};
+
+void database_init();
+byte db_write_dataflash(u16 regAddr, u8 *data);
+byte db_read_dataflash(u16 regAddr, u8 *data);
+//byte db_read_livedata(u16 regAddr, u8 *data);
+//byte db_write_livedata(u16 regAddr, u8 *data);
+
+#define db_read_livedata	db_read_dataflash
+#define db_write_livedata	db_write_dataflash
+
+#endif

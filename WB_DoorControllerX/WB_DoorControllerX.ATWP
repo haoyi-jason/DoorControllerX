@@ -26,27 +26,6 @@
             <InterruptsSub name="Interrupt_CCE" value="TRUE"/>
         </Interrupts>
     </ADC1>
-    <ADC2>
-        <Mode>
-            <ModeSub name="IN1" value="TRUE"/>
-            <ModeSub name="IN9" value="TRUE"/>
-        </Mode>
-        <Parameters>
-            <ParametersSub name="OrdinaryTriggerSource" value="ADC12_ORDINARY_TRIG_SOFTWARE"/>
-            <ParametersSub name="Channel_OrdinarySequence_1" value="ADC_CHANNEL_1"/>
-            <ParametersSub name="SamplingRate_OrdinarySequence_1" value="1.786"/>
-        </Parameters>
-    </ADC2>
-    <CRM>
-        <Mode>
-            <ModeSub name="HEXT" value="HEXT-External-Oscillator"/>
-            <ModeSub name="LEXT" value="LEXT-External-Oscillator"/>
-        </Mode>
-        <Parameters>
-            <ParametersSub name="HEXT" value="HEXT_CRYSTAL"/>
-            <ParametersSub name="LEXT" value="LEXT_CRYSTAL"/>
-        </Parameters>
-    </CRM>
     <DEBUG>
         <Mode>
             <ModeSub name="Debug interface" value="SWD"/>
@@ -154,16 +133,12 @@
         <systicsel>1</systicsel>
     </ClockConfiguration>
     <PINInfo>
-        <PinSub pinname="PC14/LEXT_IN" signalname="CRM_LEXT_IN" signaltype="2"/>
-        <PinSub pinname="PC15/LEXT_OUT" signalname="CRM_LEXT_OUT" signaltype="2"/>
-        <PinSub pinname="PD0/HEXT_IN" signalname="CRM_HEXT_IN" signaltype="2"/>
-        <PinSub pinname="PD1/HEXT_OUT" signalname="CRM_HEXT_OUT" signaltype="2"/>
         <PinSub pinname="PC0" signalname="GPIO_Input" signaltype="3"/>
         <PinSub pinname="PC1" signalname="GPIO_Input" signaltype="3"/>
         <PinSub pinname="PC2" signalname="GPIO_Output" signaltype="3"/>
         <PinSub pinname="PC3" signalname="GPIO_Output" signaltype="3"/>
         <PinSub pinname="PA0/WKUP" signalname="ADC1_IN0" signaltype="3"/>
-        <PinSub pinname="PA1" signalname="ADC1_IN1 ADC2_IN1" signaltype="2"/>
+        <PinSub pinname="PA1" signalname="ADC1_IN1" signaltype="2"/>
         <PinSub pinname="PA2" signalname="TMR5_CH3" signaltype="3"/>
         <PinSub pinname="PA3" signalname="GPIO_Output" signaltype="3"/>
         <PinSub pinname="PA4" signalname="GPIO_Output" signaltype="3"/>
@@ -173,7 +148,7 @@
         <PinSub pinname="PC4" signalname="GPIO_Output" signaltype="3"/>
         <PinSub pinname="PC5" signalname="GPIO_Input" signaltype="3"/>
         <PinSub pinname="PB0" signalname="ADC1_IN8" signaltype="3"/>
-        <PinSub pinname="PB1" signalname="ADC1_IN9 ADC2_IN9" signaltype="2"/>
+        <PinSub pinname="PB1" signalname="ADC1_IN9" signaltype="2"/>
         <PinSub pinname="PB10" signalname="GPIO_Input" signaltype="3"/>
         <PinSub pinname="PB11" signalname="GPIO_Input" signaltype="3"/>
         <PinSub pinname="PB14" signalname="GPIO_Input" signaltype="3"/>
@@ -206,9 +181,9 @@
         <ARMCompiler>0</ARMCompiler>
         <BackupCode>true</BackupCode>
         <KeepUserCode>true</KeepUserCode>
-        <NotUsedPinAnalog>false</NotUsedPinAnalog>
-        <CodeSplitIP>true</CodeSplitIP>
-        <AddNecessaryFileFlag>true</AddNecessaryFileFlag>
+        <NotUsedPinAnalog>true</NotUsedPinAnalog>
+        <CodeSplitIP>false</CodeSplitIP>
+        <AddNecessaryFileFlag>false</AddNecessaryFileFlag>
         <MinHeapSize>0x200</MinHeapSize>
         <MinStackSize>0x400</MinStackSize>
         <UseFirmware>true</UseFirmware>
