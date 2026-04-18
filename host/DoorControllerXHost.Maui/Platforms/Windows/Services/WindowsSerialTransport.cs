@@ -9,6 +9,7 @@ internal sealed class WindowsSerialTransport : ITransportClient
 {
     private readonly SerialPort _port = new();
     private readonly object _sync = new();
+    private readonly SemaphoreSlim _requestGate = new(1, 1);
     private readonly List<byte> _rxBuffer = [];
     private TaskCompletionSource<DoorControllerFrame>? _pendingReply;
 
@@ -98,6 +99,19 @@ internal sealed class WindowsSerialTransport : ITransportClient
         }
     }
 
+    public async Task WriteLiveAsync(byte id, uint value, int timeoutMs = 1000, CancellationToken cancellationToken = default)
+    {
+        var frame = await QueryAsync(DoorControllerProtocol.BuildWriteLive(id, value), timeoutMs, cancellationToken).ConfigureAwait(false);
+        if (frame.Command == DoorControllerProtocol.CmdNak)
+        {
+            throw new InvalidOperationException($"Target returned NAK for live id {id} write.");
+        }
+        if (frame.Command != DoorControllerProtocol.CmdAck)
+        {
+            throw new InvalidOperationException("Unexpected reply frame.");
+        }
+    }
+
     private async Task<DoorControllerFrame> QueryAsync(byte[] requestFrame, int timeoutMs, CancellationToken cancellationToken)
     {
         if (!_port.IsOpen)
@@ -105,28 +119,26 @@ internal sealed class WindowsSerialTransport : ITransportClient
             throw new InvalidOperationException("Serial port is not open.");
         }
 
-        lock (_sync)
-        {
-            if (_pendingReply != null)
-            {
-                throw new InvalidOperationException("Another request is already in progress.");
-            }
-            _pendingReply = new TaskCompletionSource<DoorControllerFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _rxBuffer.Clear();
-        }
-
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(timeoutMs);
-        using var reg = cts.Token.Register(() =>
-        {
-            lock (_sync)
-            {
-                _pendingReply?.TrySetCanceled(cts.Token);
-            }
-        });
+        await _requestGate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
+            lock (_sync)
+            {
+                _pendingReply = new TaskCompletionSource<DoorControllerFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _rxBuffer.Clear();
+            }
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(timeoutMs);
+            using var reg = cts.Token.Register(() =>
+            {
+                lock (_sync)
+                {
+                    _pendingReply?.TrySetCanceled(cts.Token);
+                }
+            });
+
             _port.Write(requestFrame, 0, requestFrame.Length);
             Task<DoorControllerFrame> waitTask;
             lock (_sync)
@@ -141,6 +153,7 @@ internal sealed class WindowsSerialTransport : ITransportClient
             {
                 _pendingReply = null;
             }
+            _requestGate.Release();
         }
     }
 

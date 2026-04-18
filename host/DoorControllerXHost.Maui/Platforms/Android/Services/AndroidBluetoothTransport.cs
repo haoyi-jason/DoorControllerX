@@ -15,6 +15,7 @@ internal sealed class AndroidBluetoothTransport : ITransportClient
     private static readonly UUID SerialPortUuid = UUID.FromString("00001101-0000-1000-8000-00805F9B34FB")!;
 
     private readonly object _sync = new();
+    private readonly SemaphoreSlim _requestGate = new(1, 1);
     private readonly List<byte> _rxBuffer = [];
     private TaskCompletionSource<DoorControllerFrame>? _pendingReply;
     private BluetoothSocket? _socket;
@@ -190,6 +191,19 @@ internal sealed class AndroidBluetoothTransport : ITransportClient
         }
     }
 
+    public async Task WriteLiveAsync(byte id, uint value, int timeoutMs = 1000, CancellationToken cancellationToken = default)
+    {
+        var frame = await QueryAsync(DoorControllerProtocol.BuildWriteLive(id, value), timeoutMs, cancellationToken).ConfigureAwait(false);
+        if (frame.Command == DoorControllerProtocol.CmdNak)
+        {
+            throw new InvalidOperationException($"Target returned NAK for live id {id} write.");
+        }
+        if (frame.Command != DoorControllerProtocol.CmdAck)
+        {
+            throw new InvalidOperationException("Unexpected reply frame.");
+        }
+    }
+
     public void Dispose()
     {
         DisconnectAsync().GetAwaiter().GetResult();
@@ -216,29 +230,26 @@ internal sealed class AndroidBluetoothTransport : ITransportClient
             throw new InvalidOperationException("Bluetooth transport is not connected.");
         }
 
-        lock (_sync)
-        {
-            if (_pendingReply != null)
-            {
-                throw new InvalidOperationException("Another request is already in progress.");
-            }
-
-            _pendingReply = new TaskCompletionSource<DoorControllerFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _rxBuffer.Clear();
-        }
-
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(timeoutMs);
-        using var reg = cts.Token.Register(() =>
-        {
-            lock (_sync)
-            {
-                _pendingReply?.TrySetCanceled(cts.Token);
-            }
-        });
+        await _requestGate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
+            lock (_sync)
+            {
+                _pendingReply = new TaskCompletionSource<DoorControllerFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _rxBuffer.Clear();
+            }
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(timeoutMs);
+            using var reg = cts.Token.Register(() =>
+            {
+                lock (_sync)
+                {
+                    _pendingReply?.TrySetCanceled(cts.Token);
+                }
+            });
+
             await _outputStream.WriteAsync(requestFrame, 0, requestFrame.Length, cts.Token).ConfigureAwait(false);
             await _outputStream.FlushAsync(cts.Token).ConfigureAwait(false);
 
@@ -256,6 +267,7 @@ internal sealed class AndroidBluetoothTransport : ITransportClient
             {
                 _pendingReply = null;
             }
+            _requestGate.Release();
         }
     }
 

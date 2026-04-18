@@ -20,8 +20,8 @@ typedef enum {
     DF_OPEN_TRIGGER_ANGLE,           /*!< Auto-open trigger angle (deg), 5-30, default 10 */
     DF_OPEN_DIFF_ANGLE,              /*!< M1-M2 angle diff before M2 moves, 10-30, default 10 */
     DF_LOCK_ACTIVE_TIME,             /*!< Lock/unlock active time (×0.1 s), 10-50, default 20 */
-    DF_BLOCK_DETECT_ANGLE,           /*!< Obstruction detection angle, 10-20, default 10 */
-    DF_BLOCK_DETECT_TIME,            /*!< Obstruction detection time window, 10-20, default 10 */
+    DF_BLOCK_DETECT_ANGLE,           /*!< Obstruction detection angle, 1-20, default 2 */
+    DF_BLOCK_DETECT_TIME,            /*!< Obstruction detection time window (ms), 100-2000, default 500 */
     DF_TIME_WINDOW,                  /*!< State machine period (ms), 1-20, default 5 */
     DF_M1_START_DUTY,                /*!< M1 start PWM duty (%), 1-90, default 20 */
     DF_M1_MAX_DUTY,                  /*!< M1 max PWM duty (%), 1-90, default 80 */
@@ -33,13 +33,21 @@ typedef enum {
     DF_M2_OPEN_ANGLE,                /*!< M2 open target angle (deg), 50-120, default 100 */
     DF_M1_OPEN_REV_DUTY,             /*!< M1 reverse duty before unlock (%), 5-50, default 20 */
     DF_M1_OPEN_REV_DUTY_DELTA,       /*!< M1 reverse duty increment, 1-20, default 5 */
-    DF_M1_CLOSE_FWD_DUTY,            /*!< M1 forward duty after close (%), 5-50, default 20 */
+    DF_M1_CLOSE_REV_DUTY,            /*!< M1 reverse duty hold at close end (%), 5-50, default 20 */
     DF_M1_CLOSE_FWD_DUTY_DELTA,      /*!< M1 forward duty increment, 1-20, default 5 */
-    DF_M1_ZERO_ERROR,                /*!< M1 home position error tolerance (deg), 1-20, default 5 */
-    DF_M2_ZERO_ERROR,                /*!< M2 home position error tolerance (deg), 1-20, default 5 */
+    DF_M1_ZERO_MIN,                  /*!< M1 home POT valid range lower bound (deg), 100-250, default 150 */
+    DF_M1_ZERO_MAX,                  /*!< M1 home POT valid range upper bound (deg), 100-350, default 210 */
+    DF_M2_ZERO_MIN,                  /*!< M2 home POT valid range lower bound (deg), 100-250, default 150 */
+    DF_M2_ZERO_MAX,                  /*!< M2 home POT valid range upper bound (deg), 100-350, default 210 */
     DF_MAX_OPEN_OPERATION_TIME,      /*!< Max time for open/close operation (s), 5-120, default 30 */
+    DF_M1_CLOSE_HOLD_TIME,           /*!< M1 close-end reverse hold time (s), 1-10, default 2 */
+    DF_M1_ZERO_ERROR,                /*!< M1 home position error tolerance (deg), 1-20, default 5 */
+    DF_HOME_ZERO_SAMPLE_TIME,        /*!< Hold time before sampling zero at startup home (s), 1-5, default 1 */
+    DF_M2_ZERO_ERROR,                /*!< M2 home position error tolerance (deg), 1-20, default 5 */
+    DF_AUTO_TEST_CYCLES,             /*!< Auto open/close test cycles, 0-200, default 0 (disabled) */
     DF_NUM_PARAMS
 } df_param_id_t;
+
 
 /* LD_ — Live runtime data IDs -----------------------------------------------*/
 typedef enum {
@@ -65,6 +73,11 @@ typedef enum {
     LD_CLOSE_COUNT,          /*!< Total close operations */
     LD_LOCK_RETRY_COUNT,     /*!< Lock/unlock retry count */
     LD_OPERATION_TIME_MS,    /*!< Current operation elapsed time (ms) */
+    LD_M1_RAW_ANGLE,         /*!< M1 raw potentiometer angle (degrees x 100) */
+    LD_M2_RAW_ANGLE,         /*!< M2 raw potentiometer angle (degrees x 100) */
+    LD_REMOTE_CMD,           /*!< Remote command latch: 1=open, 2=close, 3=lock, 4=unlock, 5=clear error */
+    LD_CLOSE_STAGE,          /*!< Dual-door close stage: 0=idle, 1=M2 pre-close, 2=M1 close, 3=M2 final */
+    LD_RESET_REASON,         /*!< Last reset reason: 0=normal, 1=IWDG, 2=WWDG, 3=SW, 4=PIN, 5=POR, 99=HardFault */
     LD_NUM_PARAMS
 } ld_param_id_t;
 

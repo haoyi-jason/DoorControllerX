@@ -47,8 +47,20 @@
                 <Button x:Name="ParametersButton" Text="Parameters" Clicked="OnParametersClicked" />
             </HorizontalStackLayout>
 
+            <Label Text="遠端控制" FontSize="18" FontAttributes="Bold" />
             <Grid ColumnDefinitions="*,*"
-                  RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                                    RowDefinitions="Auto,Auto,Auto"
+                  ColumnSpacing="12"
+                  RowSpacing="10">
+                <Button x:Name="RemoteOpenButton" Grid.Row="0" Grid.Column="0" Text="開門" Clicked="OnRemoteOpenClicked" IsEnabled="False" />
+                <Button x:Name="RemoteCloseButton" Grid.Row="0" Grid.Column="1" Text="關門" Clicked="OnRemoteCloseClicked" IsEnabled="False" />
+                <Button x:Name="RemoteLockButton" Grid.Row="1" Grid.Column="0" Text="上鎖" Clicked="OnRemoteLockClicked" IsEnabled="False" />
+                <Button x:Name="RemoteUnlockButton" Grid.Row="1" Grid.Column="1" Text="解鎖" Clicked="OnRemoteUnlockClicked" IsEnabled="False" />
+                                <Button x:Name="RemoteClearErrorButton" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Text="清除錯誤" Clicked="OnRemoteClearErrorClicked" IsEnabled="False" />
+            </Grid>
+
+            <Grid ColumnDefinitions="*,*"
+                                    RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                   ColumnSpacing="12"
                   RowSpacing="8">
                 <Label Grid.Row="0" Grid.Column="0" Text="System State" FontAttributes="Bold" />
@@ -57,16 +69,26 @@
                 <Label x:Name="M1StateValueLabel" Grid.Row="1" Grid.Column="1" Text="-" />
                 <Label Grid.Row="2" Grid.Column="0" Text="Sub Door State" FontAttributes="Bold" />
                 <Label x:Name="M2StateValueLabel" Grid.Row="2" Grid.Column="1" Text="-" />
-                <Label Grid.Row="3" Grid.Column="0" Text="Block Count" FontAttributes="Bold" />
-                <Label x:Name="BlockCountValueLabel" Grid.Row="3" Grid.Column="1" Text="-" />
-                <Label Grid.Row="4" Grid.Column="0" Text="Block Retry Count" FontAttributes="Bold" />
-                <Label x:Name="BlockRetryCountValueLabel" Grid.Row="4" Grid.Column="1" Text="-" />
-                <Label Grid.Row="5" Grid.Column="0" Text="Block Source State" FontAttributes="Bold" />
-                <Label x:Name="BlockSourceStateValueLabel" Grid.Row="5" Grid.Column="1" Text="-" />
+                                <Label Grid.Row="3" Grid.Column="0" Text="Main Door Angle" FontAttributes="Bold" />
+                                <Label x:Name="M1PosValueLabel" Grid.Row="3" Grid.Column="1" Text="-" />
+                                <Label Grid.Row="4" Grid.Column="0" Text="Sub Door Angle" FontAttributes="Bold" />
+                                <Label x:Name="M2PosValueLabel" Grid.Row="4" Grid.Column="1" Text="-" />
+                                <Label Grid.Row="5" Grid.Column="0" Text="Block Count" FontAttributes="Bold" />
+                                <Label x:Name="BlockCountValueLabel" Grid.Row="5" Grid.Column="1" Text="-" />
+                                <Label Grid.Row="6" Grid.Column="0" Text="Block Retry Count" FontAttributes="Bold" />
+                                <Label x:Name="BlockRetryCountValueLabel" Grid.Row="6" Grid.Column="1" Text="-" />
+                                <Label Grid.Row="7" Grid.Column="0" Text="Block Source State" FontAttributes="Bold" />
+                                <Label x:Name="BlockSourceStateValueLabel" Grid.Row="7" Grid.Column="1" Text="-" />
+                                <Label Grid.Row="8" Grid.Column="0" Text="Main Door Raw Angle" FontAttributes="Bold" />
+                                <Label x:Name="M1RawAngleValueLabel" Grid.Row="8" Grid.Column="1" Text="-" />
+                                <Label Grid.Row="9" Grid.Column="0" Text="Sub Door Raw Angle" FontAttributes="Bold" />
+                                <Label x:Name="M2RawAngleValueLabel" Grid.Row="9" Grid.Column="1" Text="-" />
+                                <Label Grid.Row="10" Grid.Column="0" Text="Close Stage" FontAttributes="Bold" />
+                                <Label x:Name="CloseStageValueLabel" Grid.Row="10" Grid.Column="1" Text="-" />
             </Grid>
 
             <Grid ColumnDefinitions="*,*"
-                  RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                  RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
                   ColumnSpacing="12"
                   RowSpacing="8">
                 <Label Grid.Row="0" Grid.Column="0" Text="Error Code" FontAttributes="Bold" />
@@ -79,7 +101,92 @@
                 <Label x:Name="OpenCountValueLabel" Grid.Row="3" Grid.Column="1" Text="-" />
                 <Label Grid.Row="4" Grid.Column="0" Text="Close Count" FontAttributes="Bold" />
                 <Label x:Name="CloseCountValueLabel" Grid.Row="4" Grid.Column="1" Text="-" />
+                <Label Grid.Row="5" Grid.Column="0" Text="Reset Reason" FontAttributes="Bold" />
+                <Label x:Name="ResetReasonValueLabel" Grid.Row="5" Grid.Column="1" Text="-" />
             </Grid>
+
+            <Label Text="即時圖表" FontSize="18" FontAttributes="Bold" />
+            <Grid ColumnDefinitions="130,*"
+                  RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                  ColumnSpacing="12"
+                  RowSpacing="8">
+                <Label Grid.Row="0" Grid.Column="0" Text="時間窗(s)" VerticalTextAlignment="Center" />
+                <Entry x:Name="ChartWindowSecondsEntry" Grid.Row="0" Grid.Column="1" Text="120" Keyboard="Numeric" TextChanged="OnChartWindowSecondsChanged" />
+
+                <Label Grid.Row="1" Grid.Column="0" Text="Y1 自動縮放" VerticalTextAlignment="Center" />
+                <CheckBox x:Name="AutoY1CheckBox" Grid.Row="1" Grid.Column="1" IsChecked="True" CheckedChanged="OnAutoY1CheckedChanged" HorizontalOptions="Start" />
+
+                <Label Grid.Row="2" Grid.Column="0" Text="Y1 Min / Max" VerticalTextAlignment="Center" />
+                <HorizontalStackLayout Grid.Row="2" Grid.Column="1" Spacing="6">
+                    <Entry x:Name="Y1MinEntry" Text="0" Keyboard="Numeric" WidthRequest="90" IsEnabled="False" />
+                    <Entry x:Name="Y1MaxEntry" Text="100" Keyboard="Numeric" WidthRequest="90" IsEnabled="False" />
+                </HorizontalStackLayout>
+
+                <Label Grid.Row="3" Grid.Column="0" Text="Y2 自動縮放" VerticalTextAlignment="Center" />
+                <CheckBox x:Name="AutoY2CheckBox" Grid.Row="3" Grid.Column="1" IsChecked="True" CheckedChanged="OnAutoY2CheckedChanged" HorizontalOptions="Start" />
+
+                <Label Grid.Row="4" Grid.Column="0" Text="Y2 Min / Max" VerticalTextAlignment="Center" />
+                <HorizontalStackLayout Grid.Row="4" Grid.Column="1" Spacing="6">
+                    <Entry x:Name="Y2MinEntry" Text="0" Keyboard="Numeric" WidthRequest="90" IsEnabled="False" />
+                    <Entry x:Name="Y2MaxEntry" Text="100" Keyboard="Numeric" WidthRequest="90" IsEnabled="False" />
+                    <Button Text="Apply" WidthRequest="90" Clicked="OnApplyChartAxesClicked" />
+                </HorizontalStackLayout>
+            </Grid>
+
+            <Grid ColumnDefinitions="Auto,Auto,*,Auto"
+                  RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                  ColumnSpacing="8"
+                  RowSpacing="6">
+                <Label Grid.Row="0" Grid.Column="0" Text="On" FontAttributes="Bold" />
+                <Label Grid.Row="0" Grid.Column="1" Text="曲線" FontAttributes="Bold" />
+                <Label Grid.Row="0" Grid.Column="2" Text="資料來源 (LD/DF)" FontAttributes="Bold" />
+                <Label Grid.Row="0" Grid.Column="3" Text="軸" FontAttributes="Bold" />
+
+                <CheckBox x:Name="Curve1EnabledCheckBox" Grid.Row="1" Grid.Column="0" IsChecked="True" CheckedChanged="OnChartConfigCheckedChanged" />
+                <Label Grid.Row="1" Grid.Column="1" Text="C1" VerticalTextAlignment="Center" />
+                <Picker x:Name="Curve1SourcePicker" Grid.Row="1" Grid.Column="2" SelectedIndexChanged="OnChartConfigChanged" />
+                <Picker x:Name="Curve1AxisPicker" Grid.Row="1" Grid.Column="3" WidthRequest="90" SelectedIndexChanged="OnChartConfigChanged" />
+
+                <CheckBox x:Name="Curve2EnabledCheckBox" Grid.Row="2" Grid.Column="0" IsChecked="True" CheckedChanged="OnChartConfigCheckedChanged" />
+                <Label Grid.Row="2" Grid.Column="1" Text="C2" VerticalTextAlignment="Center" />
+                <Picker x:Name="Curve2SourcePicker" Grid.Row="2" Grid.Column="2" SelectedIndexChanged="OnChartConfigChanged" />
+                <Picker x:Name="Curve2AxisPicker" Grid.Row="2" Grid.Column="3" WidthRequest="90" SelectedIndexChanged="OnChartConfigChanged" />
+
+                <CheckBox x:Name="Curve3EnabledCheckBox" Grid.Row="3" Grid.Column="0" IsChecked="False" CheckedChanged="OnChartConfigCheckedChanged" />
+                <Label Grid.Row="3" Grid.Column="1" Text="C3" VerticalTextAlignment="Center" />
+                <Picker x:Name="Curve3SourcePicker" Grid.Row="3" Grid.Column="2" SelectedIndexChanged="OnChartConfigChanged" />
+                <Picker x:Name="Curve3AxisPicker" Grid.Row="3" Grid.Column="3" WidthRequest="90" SelectedIndexChanged="OnChartConfigChanged" />
+
+                <CheckBox x:Name="Curve4EnabledCheckBox" Grid.Row="4" Grid.Column="0" IsChecked="False" CheckedChanged="OnChartConfigCheckedChanged" />
+                <Label Grid.Row="4" Grid.Column="1" Text="C4" VerticalTextAlignment="Center" />
+                <Picker x:Name="Curve4SourcePicker" Grid.Row="4" Grid.Column="2" SelectedIndexChanged="OnChartConfigChanged" />
+                <Picker x:Name="Curve4AxisPicker" Grid.Row="4" Grid.Column="3" WidthRequest="90" SelectedIndexChanged="OnChartConfigChanged" />
+            </Grid>
+
+            <GraphicsView x:Name="RealtimeChartView"
+                          HeightRequest="240"
+                          BackgroundColor="#F5F6F8" />
+
+                        <HorizontalStackLayout Spacing="12">
+                                <Button Text="Clear Chart" Clicked="OnClearChartClicked" />
+                        </HorizontalStackLayout>
+
+                        <Label Text="PID Auto Tuning (試算)" FontSize="16" FontAttributes="Bold" />
+                        <Grid ColumnDefinitions="Auto,*,Auto,*"
+                                    RowDefinitions="Auto,Auto,Auto"
+                                    ColumnSpacing="10"
+                                    RowSpacing="8">
+                                <Label Grid.Row="0" Grid.Column="0" Text="曲線" VerticalTextAlignment="Center" />
+                                <Picker x:Name="TuneCurvePicker" Grid.Row="0" Grid.Column="1" />
+                                <Label Grid.Row="0" Grid.Column="2" Text="Setpoint" VerticalTextAlignment="Center" />
+                                <Entry x:Name="TuneSetpointEntry" Grid.Row="0" Grid.Column="3" Text="100" Keyboard="Numeric" />
+
+                                <Label Grid.Row="1" Grid.Column="0" Text="目標" VerticalTextAlignment="Center" />
+                                <Picker x:Name="TuneObjectivePicker" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" />
+
+                                <Button Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Text="Estimate PI" Clicked="OnEstimatePiClicked" />
+                                <Label x:Name="TuneResultLabel" Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Text="-" LineBreakMode="WordWrap" />
+                        </Grid>
 
             <Label Text="Log" FontSize="18" FontAttributes="Bold" />
             <Editor x:Name="LogEditor"
