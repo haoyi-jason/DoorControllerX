@@ -35,7 +35,7 @@ static df_entry_t df_table[DF_NUM_PARAMS] = {
     /* DF_M1_OPEN_REV_DUTY        */ { 20,   5,  50,  20 },
     /* DF_M1_OPEN_REV_DUTY_DELTA  */ {  5,   1,  20,   5 },
     /* DF_M1_CLOSE_REV_DUTY       */ { 20,   5,  50,  20 },
-    /* DF_M1_CLOSE_FWD_DUTY_DELTA */ {  5,   1,  20,   5 },
+    /* DF_M1_CLOSE_REV_DUTY_DELTA */ {  5,   1,  20,   5 },
     /* DF_M1_ZERO_MIN             */ { 150, 100, 250, 150 },
     /* DF_M1_ZERO_MAX             */ { 210, 100, 350, 210 },
     /* DF_M2_ZERO_MIN             */ { 150, 100, 250, 150 },
@@ -46,6 +46,8 @@ static df_entry_t df_table[DF_NUM_PARAMS] = {
     /* DF_HOME_ZERO_SAMPLE_TIME   */ {  1,   1,   5,   1 },
     /* DF_M2_ZERO_ERROR           */ {  5,   1,  20,   5 },
     /* DF_AUTO_TEST_CYCLES        */ {  0,   0, 200,   0 },
+    /* DF_AUTO_TEST_OPEN_HOLD_SEC */ {  1,   0,  60,   1 },
+    /* DF_M1_STARTUP_RELIEF_MS    */ {500, 100, 2000, 500 },
 };
 
 /* LD_ live data table -------------------------------------------------------*/

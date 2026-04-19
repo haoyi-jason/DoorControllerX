@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "d:\\SourceRespo\\AT32_WS\\DoorControllerX\\host\\DoorControllerXHost.Core\\DoorControllerXHost.Core.csproj": {}
+    "D:\\SourceRespo\\AT32_WS\\DoorControllerX\\host\\DoorControllerXHost.Core\\DoorControllerXHost.Core.csproj": {}
   },
   "projects": {
-    "d:\\SourceRespo\\AT32_WS\\DoorControllerX\\host\\DoorControllerXHost.Core\\DoorControllerXHost.Core.csproj": {
+    "D:\\SourceRespo\\AT32_WS\\DoorControllerX\\host\\DoorControllerXHost.Core\\DoorControllerXHost.Core.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "d:\\SourceRespo\\AT32_WS\\DoorControllerX\\host\\DoorControllerXHost.Core\\DoorControllerXHost.Core.csproj",
+        "projectUniqueName": "D:\\SourceRespo\\AT32_WS\\DoorControllerX\\host\\DoorControllerXHost.Core\\DoorControllerXHost.Core.csproj",
         "projectName": "DoorControllerXHost.Core",
-        "projectPath": "d:\\SourceRespo\\AT32_WS\\DoorControllerX\\host\\DoorControllerXHost.Core\\DoorControllerXHost.Core.csproj",
+        "projectPath": "D:\\SourceRespo\\AT32_WS\\DoorControllerX\\host\\DoorControllerXHost.Core\\DoorControllerXHost.Core.csproj",
         "packagesPath": "C:\\Users\\User\\.nuget\\packages\\",
-        "outputPath": "d:\\SourceRespo\\AT32_WS\\DoorControllerX\\host\\DoorControllerXHost.Core\\obj\\",
+        "outputPath": "D:\\SourceRespo\\AT32_WS\\DoorControllerX\\host\\DoorControllerXHost.Core\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

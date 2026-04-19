@@ -23,6 +23,14 @@
 /* private define ------------------------------------------------------------*/
 /* add user code begin private define */
 
+#define MY_TASK01_STACK_WORDS    128u
+#define DOOR_CTRL_STACK_WORDS    256u
+#define COMM_TASK_STACK_WORDS    256u
+
+#define MY_TASK01_PRIORITY       (tskIDLE_PRIORITY)
+#define DOOR_CTRL_PRIORITY       (tskIDLE_PRIORITY + 2u)
+#define COMM_TASK_PRIORITY       (tskIDLE_PRIORITY + 2u)
+
 /* add user code end private define */
 
 /* private macro -------------------------------------------------------------*/
@@ -47,6 +55,8 @@
 
 /* task handler */
 TaskHandle_t my_task01_handle;
+TaskHandle_t door_ctrl_task_handle;
+TaskHandle_t comm_task_handle;
 
 /* Idle task control block and stack */
 static StackType_t idle_task_stack[configMINIMAL_STACK_SIZE];
@@ -94,10 +104,24 @@ void freertos_task_create(void)
   /* create my_task01 task */
   xTaskCreate(my_task01_func,
               "my_task01",
-              128,
+              MY_TASK01_STACK_WORDS,
               NULL,
-              0,
+              MY_TASK01_PRIORITY,
               &my_task01_handle);
+
+  xTaskCreate(door_ctrl_task,
+              "door_ctrl",
+              DOOR_CTRL_STACK_WORDS,
+              NULL,
+              DOOR_CTRL_PRIORITY,
+              &door_ctrl_task_handle);
+
+  xTaskCreate(comm_task_run,
+              "comm_task",
+              COMM_TASK_STACK_WORDS,
+              NULL,
+              COMM_TASK_PRIORITY,
+              &comm_task_handle);
 }
 
 /**

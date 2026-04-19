@@ -32,7 +32,6 @@
 #define STARTUP_HOME_TIMEOUT_MS   8000u
 #define STARTUP_POLL_MS             20u
 #define STARTUP_MIN_DELTA_DEG      1.5f
-#define STARTUP_M1_RELIEF_MS       500u
 #define STOP_SETTLE_MS             30u
 
 #define ERR_STARTUP_LOCK_UNLOCK    10u
@@ -128,6 +127,7 @@ static uint32_t        m1_close_lock_retry = 0u;
 static uint32_t        m1_close_check_cnt = 0u;
 static uint32_t        m1_close_checks_per_window = 1u;
 static float           m1_close_prev_pos = 0.0f;
+static uint8_t         m1_close_current_rev_duty = 0u;
 static uint8_t         m1_close_home_confirm_cnt = 0u;
 static uint8_t         m1_close_completed = 0u;
 
@@ -140,6 +140,7 @@ static uint32_t        test_press_start_ms = 0u;
 static uint32_t        auto_test_target_cycles = 0u;
 static uint32_t        auto_test_done_cycles = 0u;
 static uint8_t         auto_test_active = 0u;
+static uint32_t        auto_test_open_hold_until_ms = 0u;
 
 static m2_close_step_t m2_close_step = M2_CLOSE_STEP_IDLE;
 static uint8_t         m2_close_mode_preclose = 0u;
@@ -639,9 +640,9 @@ static uint32_t door_startup_sequence(void)
     }
 
     if (dual_door) {
-        /* Mechanically relieve M2 by pre-opening M1 a little before M2 direction test. */
+        /* Mechanically relieve M2 by briefly running M1 FWD before M2 direction test. */
         g_dbg_startup_stage = 118u;
-        m1_run_for(MOTOR_DIR_FWD, m1_duty, STARTUP_M1_RELIEF_MS);
+        m1_run_for(MOTOR_DIR_FWD, m1_duty, (uint32_t)db_get_param(DF_M1_STARTUP_RELIEF_MS));
 
         g_dbg_startup_stage = 120u;
         ret = startup_check_m2_direction(m2_duty);
@@ -738,6 +739,8 @@ void door_ctrl_init(void)
     db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
     db_set_live(LD_REMOTE_CMD, REMOTE_CMD_NONE);
     db_set_live(LD_CLOSE_STAGE, CLOSE_STAGE_IDLE);
+    db_set_live(LD_AUTO_TEST_TARGET, 0u);
+    db_set_live(LD_AUTO_TEST_DONE, 0u);
 
     g_dbg_startup_stage = 2u;
     startup_error = door_startup_sequence();
@@ -1036,6 +1039,8 @@ void door_main_open(void)
             }
 
             if (lock_retry < (MAX_LOCK_RETRIES - 1u)) {
+                /* Increase reverse pressure on each retry */
+                rev_duty += (uint8_t)db_get_param(DF_M1_OPEN_REV_DUTY_DELTA);
                 delay_rtos_ms_feed_wdt(retry_delay_ms);
             }
         }
@@ -1148,7 +1153,6 @@ void door_main_close(void)
     uint8_t  dip            = board_get_dip();
     uint8_t  has_lock       = (dip & 0x02u) ? 1u : 0u;
     uint32_t zero_error     = db_get_param(DF_M1_ZERO_ERROR);
-    uint8_t  close_rev_duty = (uint8_t)db_get_param(DF_M1_CLOSE_REV_DUTY);
     uint32_t close_hold_ms  = db_get_param(DF_M1_CLOSE_HOLD_TIME) * 1000u;
     uint32_t retry_delay_ms = db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u;
     uint32_t detect_time    = db_get_param(DF_BLOCK_DETECT_TIME);
@@ -1178,6 +1182,7 @@ void door_main_close(void)
         m1_close_checks_per_window = (detect_time > check_interval) ? (detect_time / check_interval) : 1u;
         m1_close_prev_pos = m1_pos();
         m1_close_home_confirm_cnt = 0u;
+        m1_close_current_rev_duty = (uint8_t)db_get_param(DF_M1_CLOSE_REV_DUTY);
 
         m1_state = DOOR_CLOSING;
         db_set_live(LD_M1_STATE, (uint32_t)m1_state);
@@ -1262,6 +1267,8 @@ void door_main_close(void)
         if ((int32_t)(get_tick_ms() - m1_close_retry_until_ms) < 0) {
             return;
         }
+        /* Increase reverse hold pressure on each retry */
+        m1_close_current_rev_duty += (uint8_t)db_get_param(DF_M1_CLOSE_REV_DUTY_DELTA);
         m1_close_step = M1_CLOSE_STEP_LOCK_PUSH;
     }
 
@@ -1269,7 +1276,7 @@ void door_main_close(void)
         /* Keep M1 in reverse hold first, then engage the lock during the hold window. */
         motor_enable(MOTOR_M1);
         motor_set_direction(MOTOR_M1, MOTOR_DIR_REV);
-        motor_set_pwm(MOTOR_M1, close_rev_duty);
+        motor_set_pwm(MOTOR_M1, m1_close_current_rev_duty);
 
         if ((int32_t)(get_tick_ms() - m1_close_lock_request_at_ms) < 0) {
             return;
@@ -1299,7 +1306,7 @@ void door_main_close(void)
         if (m1_close_home_confirm_cnt >= 2u) {
             motor_set_direction(MOTOR_M1, MOTOR_DIR_REV);
             motor_enable(MOTOR_M1);
-            motor_set_pwm(MOTOR_M1, close_rev_duty);
+            motor_set_pwm(MOTOR_M1, m1_close_current_rev_duty);
             m1_close_hold_until_ms = get_tick_ms() + close_hold_ms;
             if (has_lock) {
                 m1_close_lock_request_at_ms = get_tick_ms() + close_lock_delay_ms;
@@ -1610,6 +1617,7 @@ void door_ctrl_run(void)
     uint8_t  dip        = board_get_dip();
     uint8_t  dual_door  = (dip & 0x04u) ? 1u : 0u;
     uint32_t cfg_auto_cycles;
+    uint32_t cfg_auto_open_hold_sec;
     float    pos;
 
     /* Top-level guard: even if a branch misses a feed point, reload once here. */
@@ -1618,15 +1626,20 @@ void door_ctrl_run(void)
     db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
 
     cfg_auto_cycles = db_get_param(DF_AUTO_TEST_CYCLES);
+    cfg_auto_open_hold_sec = db_get_param(DF_AUTO_TEST_OPEN_HOLD_SEC);
     if (cfg_auto_cycles == 0u) {
         auto_test_active = 0u;
         auto_test_target_cycles = 0u;
         auto_test_done_cycles = 0u;
+        auto_test_open_hold_until_ms = 0u;
     } else if (!auto_test_active || auto_test_target_cycles != cfg_auto_cycles) {
         auto_test_active = 1u;
         auto_test_target_cycles = cfg_auto_cycles;
         auto_test_done_cycles = 0u;
+        auto_test_open_hold_until_ms = 0u;
     }
+    db_set_live(LD_AUTO_TEST_TARGET, auto_test_target_cycles);
+    db_set_live(LD_AUTO_TEST_DONE, auto_test_done_cycles);
 
     /* Keep live position values fresh for host polling in every state. */
     pos = m1_pos();
@@ -1738,7 +1751,7 @@ void door_ctrl_run(void)
         close_done_pot_bad = 0u;
         blocked_phase = 0u;
 
-        if (auto_test_active && auto_test_done_cycles < auto_test_target_cycles) {
+        if (auto_test_active) {
             wait_auto_open_armed = 0u;
             db_set_live(LD_BLOCK_COUNT, 0u);
             blocked_retry_count = 0u;
@@ -1830,7 +1843,14 @@ void door_ctrl_run(void)
         SET_OPEN_DONE(1);
         LED_SET(1);
 
-        if (auto_test_active && auto_test_done_cycles < auto_test_target_cycles) {
+        if (auto_test_active) {
+            if (auto_test_open_hold_until_ms == 0u) {
+                auto_test_open_hold_until_ms = get_tick_ms() + (cfg_auto_open_hold_sec * 1000u);
+            }
+            if ((int32_t)(get_tick_ms() - auto_test_open_hold_until_ms) < 0) {
+                break;
+            }
+            auto_test_open_hold_until_ms = 0u;
             SET_OPEN_DONE(0);
             db_set_live(LD_BLOCK_COUNT, 0u);
             blocked_retry_count = 0u;
@@ -1844,6 +1864,7 @@ void door_ctrl_run(void)
 
         /* Hold OPEN_DONE high until close trigger */
         if (TG_CLOSE_READ() == RESET) {
+            auto_test_open_hold_until_ms = 0u;
             SET_OPEN_DONE(0);
             db_set_live(LD_BLOCK_COUNT, 0u);
             blocked_retry_count = 0u;
@@ -1879,12 +1900,14 @@ void door_ctrl_run(void)
 
             if (closing_flow_phase >= 1u) {
                 db_set_live(LD_CLOSE_STAGE, (closing_flow_phase == 1u) ? CLOSE_STAGE_M1_MAIN : CLOSE_STAGE_M2_FINAL);
-                door_main_close();
-                if (sys_state == SYS_STATE_ERROR || sys_state == SYS_STATE_BLOCKED) {
-                    break;
-                }
-                if (m1_close_completed) {
-                    closing_flow_phase = 2u;
+                if (!m1_close_completed) {
+                    door_main_close();
+                    if (sys_state == SYS_STATE_ERROR || sys_state == SYS_STATE_BLOCKED) {
+                        break;
+                    }
+                    if (m1_close_completed) {
+                        closing_flow_phase = 2u;
+                    }
                 }
             }
 
@@ -1951,12 +1974,14 @@ void door_ctrl_run(void)
             close_done_phase = 0u;
             close_done_pot_bad = 0u;
 
-            if (auto_test_active && auto_test_done_cycles < auto_test_target_cycles) {
+            if (auto_test_active) {
                 auto_test_done_cycles++;
-                if (auto_test_done_cycles >= auto_test_target_cycles) {
+                if (auto_test_target_cycles > 0u && auto_test_done_cycles >= auto_test_target_cycles) {
+                    auto_test_done_cycles = auto_test_target_cycles;
                     auto_test_active = 0u;
                     db_set_param(DF_AUTO_TEST_CYCLES, 0u);
                 }
+                db_set_live(LD_AUTO_TEST_DONE, auto_test_done_cycles);
             }
 
             sys_state = SYS_STATE_WAIT;

@@ -114,6 +114,23 @@
         <USART1_IRQHandler>0;5;0;1;0</USART1_IRQHandler>
         <TMR5_GLOBAL_IRQHandler>0;5;0;1;0</TMR5_GLOBAL_IRQHandler>
     </NVIC>
+    <GPIO>
+        <Signal SignalName="GPIO_Input" PinName="PC5">
+            <Parameters name="GPIO_PullType_Set" value="GPIO_PULL_UP"/>
+        </Signal>
+        <Signal SignalName="GPIO_Input" PinName="PB11">
+            <Parameters name="GPIO_PullType_Set" value="GPIO_PULL_UP"/>
+        </Signal>
+        <Signal SignalName="GPIO_Input" PinName="PB14">
+            <Parameters name="GPIO_PullType_Set" value="GPIO_PULL_UP"/>
+        </Signal>
+        <Signal SignalName="GPIO_Input" PinName="PC6">
+            <Parameters name="GPIO_PullType_Set" value="GPIO_PULL_UP"/>
+        </Signal>
+        <Signal SignalName="GPIO_Input" PinName="PA11">
+            <Parameters name="GPIO_PullType_Set" value="GPIO_PULL_UP"/>
+        </Signal>
+    </GPIO>
     <ClockConfiguration>
         <rtcsel>0</rtcsel>
         <hext>8.000000</hext>

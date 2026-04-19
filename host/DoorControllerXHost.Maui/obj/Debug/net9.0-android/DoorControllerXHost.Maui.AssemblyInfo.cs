@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DoorControllerXHost.Maui")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0+d2ca2e8e534f34c9e3fdc663255f6588428ad214")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0+91ea96b07c2d9ee8b4c364bad92a913906d9f762")]
 [assembly: System.Reflection.AssemblyProductAttribute("DoorControllerXHost.Maui")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DoorControllerXHost.Maui")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

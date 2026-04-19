@@ -19,6 +19,14 @@ public partial class ParametersPage : ContentPage
         }
     }
 
+    private async void OnBackClicked(object? sender, EventArgs e)
+    {
+        if (Navigation.NavigationStack.Count > 1)
+        {
+            await Navigation.PopAsync();
+        }
+    }
+
     private void OnParamSelectionChanged(object? sender, EventArgs e)
     {
         if (ParamPicker.SelectedItem is not DfParameterInfo info)

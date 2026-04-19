@@ -23,7 +23,7 @@
 /* Private constants ---------------------------------------------------------*/
 #define RX_RING_SIZE    128u    /*!< RX ring buffer size (power of 2) */
 #define TX_TIMEOUT      10000u  /*!< Transmit flag poll timeout loops */
-#define RX_POLL_MS      1u      /*!< Task RX poll period (ms) */
+#define RX_IDLE_SLEEP_MS 1u     /*!< Sleep only when RX ring/FIFO are empty */
 
 /* Minimum frame: STX + LEN + CMD + CRC + ETX = 5 bytes */
 #define FRAME_MIN_SIZE  5u
@@ -32,8 +32,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 static uint8_t  rx_ring[RX_RING_SIZE];
-static uint16_t rx_head = 0u;
-static uint16_t rx_tail = 0u;
+static volatile uint16_t rx_head = 0u;
+static volatile uint16_t rx_tail = 0u;
 
 /* Private helpers -----------------------------------------------------------*/
 
@@ -80,6 +80,35 @@ void comm_task_init(void)
 {
     rx_head = 0u;
     rx_tail = 0u;
+
+    /* Clear any pending RX/error flags and enable USART1 RX interrupt. */
+    if (usart_flag_get(USART1, USART_ROERR_FLAG) != RESET) {
+        (void)usart_data_receive(USART1);
+        usart_flag_clear(USART1, USART_ROERR_FLAG);
+    }
+    while (usart_flag_get(USART1, USART_RDBF_FLAG)) {
+        (void)usart_data_receive(USART1);
+    }
+
+    nvic_irq_enable(USART1_IRQn, 5, 0);
+    usart_interrupt_enable(USART1, USART_ERR_INT, TRUE);
+    usart_interrupt_enable(USART1, USART_RDBF_INT, TRUE);
+}
+
+/**
+  * @brief  USART1 RX ISR helper.
+  *         Pushes all received bytes into the software ring buffer.
+  */
+void comm_task_rx_isr_handler(void)
+{
+    if (usart_flag_get(USART1, USART_ROERR_FLAG) != RESET) {
+        (void)usart_data_receive(USART1);
+        usart_flag_clear(USART1, USART_ROERR_FLAG);
+    }
+
+    while (usart_flag_get(USART1, USART_RDBF_FLAG)) {
+        ring_push((uint8_t)usart_data_receive(USART1));
+    }
 }
 
 /**
@@ -224,11 +253,6 @@ void comm_task_run(void *pvParameters)
     comm_task_init();
 
     while (1) {
-        /* Drain USART1 RX FIFO into ring buffer */
-        while (usart_flag_get(USART1, USART_RDBF_FLAG)) {
-            ring_push((uint8_t)usart_data_receive(USART1));
-        }
-
         /* Parse ring buffer */
         while (!ring_empty()) {
             uint8_t b = ring_pop();
@@ -243,7 +267,11 @@ void comm_task_run(void *pvParameters)
                 break;
 
             case PS_LEN:
-                if (b == 0u || b > (FRAME_MAX_DATA + 1u)) {
+                if (b == PROTO_STX) {
+                    /* Repeated STX: keep waiting for LEN of a fresh frame */
+                    body_received = 0u;
+                    parse_state   = PS_LEN;
+                } else if (b == 0u || b > (FRAME_MAX_DATA + 1u)) {
                     /* Invalid length — resync */
                     parse_state = PS_IDLE;
                 } else {
@@ -255,6 +283,12 @@ void comm_task_run(void *pvParameters)
                 break;
 
             case PS_BODY:
+                if (b == PROTO_STX && body_received <= 1u) {
+                    /* Unexpected new STX before CMD: restart frame capture */
+                    body_received = 0u;
+                    parse_state   = PS_LEN;
+                    break;
+                }
                 frame_buf[body_received++] = b;
                 if (body_received >= (body_expected + 1u)) {
                     /* Full frame received: verify ETX then check CRC */
@@ -279,6 +313,8 @@ void comm_task_run(void *pvParameters)
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(RX_POLL_MS));
+        if (ring_empty()) {
+            vTaskDelay(pdMS_TO_TICKS(RX_IDLE_SLEEP_MS));
+        }
     }
 }

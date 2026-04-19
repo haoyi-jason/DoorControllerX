@@ -3,6 +3,7 @@ using DoorControllerXHost.Core.Models;
 using DoorControllerXHost.Core.Services;
 using Microsoft.Maui.Graphics;
 using System.Globalization;
+using System.Text;
 
 namespace DoorControllerXHost.Maui;
 
@@ -56,6 +57,8 @@ public partial class MainPage : ContentPage
         LiveDataId.CloseCount,
         LiveDataId.CloseStage,
         LiveDataId.ResetReason,
+        LiveDataId.AutoTestTarget,
+        LiveDataId.AutoTestDone,
     ];
 
     private const byte RemoteCommandLiveId = 24;
@@ -64,6 +67,10 @@ public partial class MainPage : ContentPage
     private const uint RemoteCommandLock = 3;
     private const uint RemoteCommandUnlock = 4;
     private const uint RemoteCommandClearError = 5;
+    private const uint AutoTestCyclesMin = 0;
+    private const uint AutoTestCyclesMax = 200;
+    private const uint AutoTestOpenHoldSecMin = 0;
+    private const uint AutoTestOpenHoldSecMax = 60;
 
     public MainPage(ITransportClient transportClient, ParametersPage parametersPage)
     {
@@ -150,6 +157,9 @@ public partial class MainPage : ContentPage
             RemoteLockButton.IsEnabled = true;
             RemoteUnlockButton.IsEnabled = true;
             RemoteClearErrorButton.IsEnabled = true;
+            AutoTestReadButton.IsEnabled = true;
+            AutoTestStartButton.IsEnabled = true;
+            AutoTestStopButton.IsEnabled = true;
 
             if (!_chartTimer.IsRunning)
             {
@@ -157,6 +167,7 @@ public partial class MainPage : ContentPage
             }
 
             Log($"Connected: {EndpointEntry.Text.Trim()} @ {baudRate}.");
+            await RefreshAutoTestCyclesAsync();
             await PollSnapshotAsync();
             await SampleChartAsync();
         }
@@ -182,6 +193,12 @@ public partial class MainPage : ContentPage
         RemoteLockButton.IsEnabled = false;
         RemoteUnlockButton.IsEnabled = false;
         RemoteClearErrorButton.IsEnabled = false;
+        AutoTestReadButton.IsEnabled = false;
+        AutoTestStartButton.IsEnabled = false;
+        AutoTestStopButton.IsEnabled = false;
+        AutoTestCurrentValueLabel.Text = "-";
+        AutoTestOpenHoldCurrentValueLabel.Text = "-";
+        AutoTestProgressValueLabel.Text = "-";
         PollButton.Text = "Start Poll";
         Log("Disconnected.");
     }
@@ -198,6 +215,88 @@ public partial class MainPage : ContentPage
         TuneResultLabel.Text = "-";
         UpdateChartDrawable();
         Log("Chart data cleared.");
+    }
+
+    private async void OnExportChartCsvClicked(object? sender, EventArgs e)
+    {
+        if (_chartSamples.Count == 0)
+        {
+            await DisplayAlert("No Data", "目前沒有可匯出的圖表資料。", "OK");
+            return;
+        }
+
+        try
+        {
+            var exportDir = Path.Combine(FileSystem.Current.AppDataDirectory, "exports");
+            Directory.CreateDirectory(exportDir);
+
+            var fileName = $"door_chart_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+            var filePath = Path.Combine(exportDir, fileName);
+
+            var sb = new StringBuilder(64 * 1024);
+            sb.Append("timestamp_utc,elapsed_sec");
+            for (var i = 0; i < _curveSlots.Length; i++)
+            {
+                var sourceName = GetCurveSourceName(i);
+                sb.Append(',');
+                sb.Append(EscapeCsv($"C{i + 1}_{sourceName}"));
+            }
+            sb.AppendLine();
+
+            var firstTs = _chartSamples[0].TimestampUtc;
+            foreach (var sample in _chartSamples)
+            {
+                sb.Append(sample.TimestampUtc.ToString("O", CultureInfo.InvariantCulture));
+                sb.Append(',');
+                sb.Append((sample.TimestampUtc - firstTs).TotalSeconds.ToString("F3", CultureInfo.InvariantCulture));
+
+                for (var i = 0; i < _curveSlots.Length; i++)
+                {
+                    sb.Append(',');
+                    if (sample.Values.Length > i && sample.Values[i].HasValue)
+                    {
+                        sb.Append(sample.Values[i]!.Value.ToString("G17", CultureInfo.InvariantCulture));
+                    }
+                }
+
+                sb.AppendLine();
+            }
+
+            await File.WriteAllTextAsync(filePath, sb.ToString(), Encoding.UTF8);
+            Log($"Chart CSV exported: {filePath}");
+            await DisplayAlert("Export Completed", $"CSV 已匯出:\n{filePath}", "OK");
+        }
+        catch (Exception ex)
+        {
+            Log($"Export CSV failed: {ex.Message}");
+            await DisplayAlert("Export Error", ex.Message, "OK");
+        }
+    }
+
+    private string GetCurveSourceName(int index)
+    {
+        if (index < 0 || index >= _curveSlots.Length)
+        {
+            return "NA";
+        }
+
+        var slot = _curveSlots[index];
+        if (slot.SourcePicker.SelectedItem is ChartSourceOption option && option.Kind != ChartSourceKind.None)
+        {
+            return option.DisplayName;
+        }
+
+        return "None";
+    }
+
+    private static string EscapeCsv(string text)
+    {
+        if (text.IndexOfAny([',', '"', '\r', '\n']) < 0)
+        {
+            return text;
+        }
+
+        return $"\"{text.Replace("\"", "\"\"")}\"";
     }
 
     private void OnPollClicked(object? sender, EventArgs e)
@@ -246,6 +345,80 @@ public partial class MainPage : ContentPage
         await SendRemoteCommandAsync(RemoteCommandClearError, "清除錯誤");
     }
 
+    private async void OnAutoTestReadClicked(object? sender, EventArgs e)
+    {
+        await RefreshAutoTestCyclesAsync();
+    }
+
+    private async void OnAutoTestStartClicked(object? sender, EventArgs e)
+    {
+        if (!_transportClient.IsOpen)
+        {
+            await DisplayAlert("Not Connected", "Please connect to target first.", "OK");
+            return;
+        }
+
+        if (!uint.TryParse(AutoTestCyclesEntry.Text, out var cycles))
+        {
+            await DisplayAlert("Invalid Value", "測試次數需為整數。", "OK");
+            return;
+        }
+
+        if (cycles == 0u || cycles > AutoTestCyclesMax)
+        {
+            await DisplayAlert("Out Of Range", $"測試次數需為 1~{AutoTestCyclesMax}。", "OK");
+            return;
+        }
+
+        if (!uint.TryParse(AutoTestOpenHoldSecEntry.Text, out var openHoldSec))
+        {
+            await DisplayAlert("Invalid Value", "開門等待秒數需為整數。", "OK");
+            return;
+        }
+
+        if (openHoldSec < AutoTestOpenHoldSecMin || openHoldSec > AutoTestOpenHoldSecMax)
+        {
+            await DisplayAlert("Out Of Range", $"開門等待秒數需為 {AutoTestOpenHoldSecMin}~{AutoTestOpenHoldSecMax}。", "OK");
+            return;
+        }
+
+        try
+        {
+            await _transportClient.WriteParamAsync((byte)DfParamId.AutoTestOpenHoldSec, openHoldSec);
+            await _transportClient.WriteParamAsync((byte)DfParamId.AutoTestCycles, cycles);
+            Log($"Auto test set: cycles={cycles}, open-hold={openHoldSec}s");
+            await RefreshAutoTestCyclesAsync();
+            await PollSnapshotAsync();
+        }
+        catch (Exception ex)
+        {
+            Log($"Set auto test cycles failed: {ex.Message}");
+            await DisplayAlert("Write Error", ex.Message, "OK");
+        }
+    }
+
+    private async void OnAutoTestStopClicked(object? sender, EventArgs e)
+    {
+        if (!_transportClient.IsOpen)
+        {
+            await DisplayAlert("Not Connected", "Please connect to target first.", "OK");
+            return;
+        }
+
+        try
+        {
+            await _transportClient.WriteParamAsync((byte)DfParamId.AutoTestCycles, AutoTestCyclesMin);
+            Log("Auto test stopped (DF_AUTO_TEST_CYCLES=0)");
+            await RefreshAutoTestCyclesAsync();
+            await PollSnapshotAsync();
+        }
+        catch (Exception ex)
+        {
+            Log($"Stop auto test failed: {ex.Message}");
+            await DisplayAlert("Write Error", ex.Message, "OK");
+        }
+    }
+
     private async Task SendRemoteCommandAsync(uint commandValue, string commandLabel)
     {
         if (!_transportClient.IsOpen)
@@ -276,6 +449,31 @@ public partial class MainPage : ContentPage
         finally
         {
             _remoteCommandBusy = false;
+        }
+    }
+
+    private async Task RefreshAutoTestCyclesAsync()
+    {
+        if (!_transportClient.IsOpen)
+        {
+            AutoTestCurrentValueLabel.Text = "-";
+            return;
+        }
+
+        try
+        {
+            var cycles = await _transportClient.ReadParamAsync((byte)DfParamId.AutoTestCycles);
+            var openHoldSec = await _transportClient.ReadParamAsync((byte)DfParamId.AutoTestOpenHoldSec);
+
+            AutoTestCurrentValueLabel.Text = cycles.ToString(CultureInfo.InvariantCulture);
+            AutoTestOpenHoldCurrentValueLabel.Text = $"目前: {openHoldSec}s";
+            AutoTestCyclesEntry.Text = cycles.ToString(CultureInfo.InvariantCulture);
+            AutoTestOpenHoldSecEntry.Text = openHoldSec.ToString(CultureInfo.InvariantCulture);
+            UpdateAutoTestProgressLabel();
+        }
+        catch (Exception ex)
+        {
+            Log($"Read auto test cycles failed: {ex.Message}");
         }
     }
 
@@ -443,7 +641,28 @@ public partial class MainPage : ContentPage
             case LiveDataId.ResetReason:
                 ResetReasonValueLabel.Text = formatted;
                 break;
+            case LiveDataId.AutoTestTarget:
+            case LiveDataId.AutoTestDone:
+                UpdateAutoTestProgressLabel();
+                break;
         }
+    }
+
+    private void UpdateAutoTestProgressLabel()
+    {
+        var done = _latestLiveValues.TryGetValue(LiveDataId.AutoTestDone, out var doneValue) ? doneValue : 0u;
+
+        uint target;
+        if (_latestLiveValues.TryGetValue(LiveDataId.AutoTestTarget, out var targetValue))
+        {
+            target = targetValue;
+        }
+        else if (!uint.TryParse(AutoTestCurrentValueLabel.Text, out target))
+        {
+            target = 0u;
+        }
+
+        AutoTestProgressValueLabel.Text = $"{done}/{target}";
     }
 
     private void InitializeChartOptions()

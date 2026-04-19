@@ -175,6 +175,8 @@ host/
 
 | ID | Name | 說明 |
 | --- | --- | --- |
+| 3 | LD_M1_POS | 主門目前角度，單位為度 x 100 |
+| 4 | LD_M2_POS | 副門目前角度，單位為度 x 100 |
 | 14 | LD_BLOCK_COUNT | 單次動作內累計阻擋偵測次數 |
 | 15 | LD_BLOCK_RETRY_COUNT | 進入 BLOCKED 後自動重試次數 |
 | 16 | LD_BLOCK_SOURCE_STATE | 最後一次進入 BLOCKED 的來源狀態 |
@@ -199,7 +201,41 @@ host/
 - 若門在關閉過程阻擋，值為 `SYS_STATE_CLOSING`。
 
 ## Host UI 建議
-- 主畫面固定輪詢 `LD_SYS_STATE`, `LD_M1_STATE`, `LD_M2_STATE`, `LD_ERROR_CODE`
+- 主畫面固定輪詢 `LD_SYS_STATE`, `LD_M1_STATE`, `LD_M2_STATE`, `LD_M1_POS`, `LD_M2_POS`, `LD_ERROR_CODE`
 - 診斷頁增加 `LD_BLOCK_COUNT`, `LD_BLOCK_RETRY_COUNT`, `LD_BLOCK_SOURCE_STATE`, `LD_LOCK_RETRY_COUNT`, `LD_OPERATION_TIME_MS`
 - `LD_BLOCK_SOURCE_STATE` 建議顯示文字，不直接顯示數值
 - `LD_OPERATION_TIME_MS` 建議每 100 ms 刷新即可
+
+## 歸零誤差參數
+- `DF_M1_ZERO_ERROR` 與 `DF_M2_ZERO_ERROR` 已存在於韌體與 Host 參數頁，可由使用者設定上電歸零允許誤差。
+- 若上電回原點後 POT 角度落在此誤差範圍內，韌體會將當前角度設為零點；超出範圍則報錯並禁止操作。
+
+## 上電自檢錯誤碼 (LD_ERROR_CODE)
+
+| Code | Meaning |
+| --- | --- |
+| 0 | NONE |
+| 1 | BLOCK_RETRY_EXCEEDED |
+| 10 | STARTUP_UNLOCK_CHECK_FAIL |
+| 11 | STARTUP_M2_DIRECTION_FAIL |
+| 12 | STARTUP_M2_HOME_TIMEOUT |
+| 13 | STARTUP_M2_HOME_SWITCH_FAIL |
+| 14 | STARTUP_M1_DIRECTION_FAIL |
+| 15 | STARTUP_M1_HOME_TIMEOUT |
+| 16 | STARTUP_M1_HOME_SWITCH_FAIL |
+| 17 | STARTUP_LOCK_CHECK_FAIL |
+
+## 即時圖表
+- 使用FastLine
+- 可由LD/DF選取要顯示的資料
+- 每秒一個資料點
+- 横軸為時間
+- 可設定横軸顯示長度
+- 具備Y1/Y2, 可自定邊界值或自動設定
+
+## 待辦事項
+
+- [ ] 在 Host 畫面新增上電自檢結果摘要區塊（顯示最近一次檢查狀態）
+- [ ] 實機驗證 DIP 組合（有無電鎖 / 單門雙門）在上電流程的分支行為
+- [ ] 確認 M1/M2 方向一致性檢查的脈衝時間與角度閾值在機構端穩定
+- [ ] 依實測結果微調上電回原點逾時參數

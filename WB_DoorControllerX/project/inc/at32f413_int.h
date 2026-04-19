@@ -65,6 +65,7 @@ void DebugMon_Handler(void);
 void SysTick_Handler(void);
 
 void ADC1_2_IRQHandler(void);
+void USART1_IRQHandler(void);
 /* add user code begin exported functions */
 
 /* add user code end exported functions */

@@ -34,7 +34,7 @@ typedef enum {
     DF_M1_OPEN_REV_DUTY,             /*!< M1 reverse duty before unlock (%), 5-50, default 20 */
     DF_M1_OPEN_REV_DUTY_DELTA,       /*!< M1 reverse duty increment, 1-20, default 5 */
     DF_M1_CLOSE_REV_DUTY,            /*!< M1 reverse duty hold at close end (%), 5-50, default 20 */
-    DF_M1_CLOSE_FWD_DUTY_DELTA,      /*!< M1 forward duty increment, 1-20, default 5 */
+    DF_M1_CLOSE_REV_DUTY_DELTA,      /*!< M1 reverse duty increment on lock retry, 1-20, default 5 */
     DF_M1_ZERO_MIN,                  /*!< M1 home POT valid range lower bound (deg), 100-250, default 150 */
     DF_M1_ZERO_MAX,                  /*!< M1 home POT valid range upper bound (deg), 100-350, default 210 */
     DF_M2_ZERO_MIN,                  /*!< M2 home POT valid range lower bound (deg), 100-250, default 150 */
@@ -45,6 +45,8 @@ typedef enum {
     DF_HOME_ZERO_SAMPLE_TIME,        /*!< Hold time before sampling zero at startup home (s), 1-5, default 1 */
     DF_M2_ZERO_ERROR,                /*!< M2 home position error tolerance (deg), 1-20, default 5 */
     DF_AUTO_TEST_CYCLES,             /*!< Auto open/close test cycles, 0-200, default 0 (disabled) */
+    DF_AUTO_TEST_OPEN_HOLD_SEC,      /*!< Auto test hold time at OPEN_DONE before closing (s), 0-60, default 1 */
+    DF_M1_STARTUP_RELIEF_MS,         /*!< M1 forward relief pulse duration at startup (ms), 100-2000, default 500 */
     DF_NUM_PARAMS
 } df_param_id_t;
 
@@ -78,6 +80,8 @@ typedef enum {
     LD_REMOTE_CMD,           /*!< Remote command latch: 1=open, 2=close, 3=lock, 4=unlock, 5=clear error */
     LD_CLOSE_STAGE,          /*!< Dual-door close stage: 0=idle, 1=M2 pre-close, 2=M1 close, 3=M2 final */
     LD_RESET_REASON,         /*!< Last reset reason: 0=normal, 1=IWDG, 2=WWDG, 3=SW, 4=PIN, 5=POR, 99=HardFault */
+    LD_AUTO_TEST_TARGET,     /*!< Auto test configured cycles (>0 enables continuous loop) */
+    LD_AUTO_TEST_DONE,       /*!< Auto test done cycles inside current loop window */
     LD_NUM_PARAMS
 } ld_param_id_t;
 

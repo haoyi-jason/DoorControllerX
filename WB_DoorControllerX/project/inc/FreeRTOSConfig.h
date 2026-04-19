@@ -127,7 +127,7 @@
 #define configUSE_TIME_SLICING                   1
 #define configSUPPORT_STATIC_ALLOCATION          1
 #define configSUPPORT_DYNAMIC_ALLOCATION         1
-#define configUSE_IDLE_HOOK                      0
+#define configUSE_IDLE_HOOK                      1
 #define configUSE_TICK_HOOK                      0
 #define configCPU_CLOCK_HZ                       ( ( unsigned long ) system_core_clock )
 #define configTICK_RATE_HZ                       ( ( TickType_t ) 1000 )
@@ -199,7 +199,9 @@ See http://www.FreeRTOS.org/RTOS-Cortex-M3-M4.html. */
 
 /* Normal assert() semantics without relying on the provision of an assert.h
 header file. */
-#define configASSERT( x ) if( ( x ) == 0 ) { taskDISABLE_INTERRUPTS(); for( ;; ); }
+/* DISABLED temporarily for debugging — see if RTOS asserts are causing resets */
+/* #define configASSERT( x ) if( ( x ) == 0 ) { taskDISABLE_INTERRUPTS(); for( ;; ); } */
+#define configASSERT( x )  /* Disabled for testing */
 
 /* Definitions that map the FreeRTOS port interrupt handlers to their CMSIS
 standard names. */

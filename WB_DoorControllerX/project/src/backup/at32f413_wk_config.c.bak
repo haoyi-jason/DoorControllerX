@@ -66,7 +66,6 @@
   * @note   the system clock is configured as follow:
   *         system clock (sclk)   = hick / 12 * pll_mult
   *         system clock source   = HICK_VALUE
-  *         - hext                = HEXT_VALUE
   *         - sclk                = 200000000
   *         - ahbdiv              = 1
   *         - ahbclk              = 200000000
@@ -84,42 +83,11 @@ void wk_system_clock_config(void)
   /* reset crm */
   crm_reset();
 
-  /* enable pwc periph clock */
-  crm_periph_clock_enable(CRM_PWC_PERIPH_CLOCK, TRUE);
-  /* enable battery powered domain access */
-  pwc_battery_powered_domain_access(TRUE);
-
-  /* check lext enabled or not */
-  if(crm_flag_get(CRM_LEXT_STABLE_FLAG) == RESET)
-  {
-    crm_lext_bypass(TRUE);
-
-    crm_clock_source_enable(CRM_CLOCK_SOURCE_LEXT, TRUE);
-    while(crm_flag_get(CRM_LEXT_STABLE_FLAG) == RESET)
-    {
-    }
-  }
-  /* disable battery powered domain access */
-  pwc_battery_powered_domain_access(FALSE);
-  /* disable pwc periph clock */
-  crm_periph_clock_enable(CRM_PWC_PERIPH_CLOCK, FALSE);
-
   /* enable lick */
   crm_clock_source_enable(CRM_CLOCK_SOURCE_LICK, TRUE);
 
   /* wait till lick is ready */
   while(crm_flag_get(CRM_LICK_STABLE_FLAG) != SET)
-  {
-  }
-
-  /* enable hext bypass */
-  crm_hext_bypass(TRUE);
-
-  /* enable hext */
-  crm_clock_source_enable(CRM_CLOCK_SOURCE_HEXT, TRUE);
-
-  /* wait till hext is ready */
-  while(crm_hext_stable_wait() == ERROR)
   {
   }
 
@@ -314,9 +282,15 @@ void wk_gpio_config(void)
 
   /* gpio analog config */
   gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
-  gpio_init_struct.gpio_pins = GPIO_PINS_13 | GPIO_PINS_10 | GPIO_PINS_11 | GPIO_PINS_12;
+  gpio_init_struct.gpio_pins = GPIO_PINS_13 | GPIO_PINS_14 | GPIO_PINS_15 | GPIO_PINS_10 | GPIO_PINS_11 | 
+                               GPIO_PINS_12;
   gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
   gpio_init(GPIOC, &gpio_init_struct);
+
+  gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
+  gpio_init_struct.gpio_pins = GPIO_PINS_0 | GPIO_PINS_1;
+  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init(GPIOD, &gpio_init_struct);
 
   gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
   gpio_init_struct.gpio_pins = GPIO_PINS_4 | GPIO_PINS_5 | GPIO_PINS_6 | GPIO_PINS_7;
@@ -327,6 +301,8 @@ void wk_gpio_config(void)
   gpio_init_struct.gpio_pins = GPIO_PINS_2 | GPIO_PINS_12 | GPIO_PINS_13;
   gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
   gpio_init(GPIOB, &gpio_init_struct);
+
+  gpio_pin_remap_config(PD01_GMUX, TRUE);
 
   /* add user code begin gpio_config 2 */
 

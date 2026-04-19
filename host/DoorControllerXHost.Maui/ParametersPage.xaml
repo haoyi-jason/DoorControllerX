@@ -6,6 +6,10 @@
 
     <ScrollView>
         <VerticalStackLayout Padding="24" Spacing="14">
+            <Button Text="Back"
+                    HorizontalOptions="Start"
+                    Clicked="OnBackClicked" />
+
             <Label Text="DF Parameter Read / Write"
                    FontSize="24"
                    FontAttributes="Bold" />

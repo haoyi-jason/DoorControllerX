@@ -20,8 +20,8 @@ extern "C" {
 #define MOTOR_M3    2   /*!< Electric lock motor — D2 (TIM5 CH3, PA2) + R3 */
 
 /* Motor direction -----------------------------------------------------------*/
-#define MOTOR_DIR_FWD   0   /*!< Forward (PH=0 unless DIP_0=1) */
-#define MOTOR_DIR_REV   1   /*!< Reverse (PH=1 unless DIP_0=1) */
+#define MOTOR_DIR_FWD   0   /*!< Logical forward direction (PH level mapped by DIP_0) */
+#define MOTOR_DIR_REV   1   /*!< Logical reverse direction (PH level mapped by DIP_0) */
 
 /* Timer period (counts) used during wk_tmr4/5 init: 20000 ticks = 100% duty */
 #define TMR_PERIOD_COUNTS   20000u
@@ -46,6 +46,7 @@ void    motor_enable(uint8_t motor_id);
 void    motor_disable(uint8_t motor_id);
 
 float   adc_to_position(uint16_t raw);
+void    adc_reset_pot_filter(uint8_t motor_id);
 uint16_t adc_read_m1_pot(void);
 uint16_t adc_read_m2_pot(void);
 

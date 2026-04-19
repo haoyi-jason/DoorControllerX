@@ -59,6 +59,38 @@
                                 <Button x:Name="RemoteClearErrorButton" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Text="清除錯誤" Clicked="OnRemoteClearErrorClicked" IsEnabled="False" />
             </Grid>
 
+                        <Label Text="開/關門測試" FontSize="18" FontAttributes="Bold" />
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto"
+                                    RowDefinitions="Auto,Auto,Auto,Auto"
+                                    ColumnSpacing="10"
+                                    RowSpacing="8">
+                                <Label Grid.Row="0" Grid.Column="0" Text="測試次數" VerticalTextAlignment="Center" />
+                                <Entry x:Name="AutoTestCyclesEntry"
+                                             Grid.Row="0"
+                                             Grid.Column="1"
+                                             Text="10"
+                                             Keyboard="Numeric"
+                                             Placeholder="1~200" />
+                                <Button x:Name="AutoTestReadButton" Grid.Row="0" Grid.Column="2" Text="讀取" Clicked="OnAutoTestReadClicked" IsEnabled="False" />
+                                <Button x:Name="AutoTestStartButton" Grid.Row="0" Grid.Column="3" Text="啟動" Clicked="OnAutoTestStartClicked" IsEnabled="False" />
+
+                                <Label Grid.Row="1" Grid.Column="0" Text="開門等待(s)" VerticalTextAlignment="Center" />
+                                <Entry x:Name="AutoTestOpenHoldSecEntry"
+                                         Grid.Row="1"
+                                         Grid.Column="1"
+                                         Text="1"
+                                         Keyboard="Numeric"
+                                         Placeholder="0~60" />
+                                <Label x:Name="AutoTestOpenHoldCurrentValueLabel" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Text="-" VerticalTextAlignment="Center" />
+
+                                <Label Grid.Row="2" Grid.Column="0" Text="目前次數" VerticalTextAlignment="Center" />
+                                <Label x:Name="AutoTestCurrentValueLabel" Grid.Row="2" Grid.Column="1" Text="-" VerticalTextAlignment="Center" />
+                                <Button x:Name="AutoTestStopButton" Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Text="停止(設為0)" Clicked="OnAutoTestStopClicked" IsEnabled="False" />
+
+                                <Label Grid.Row="3" Grid.Column="0" Text="進度(完成/目標)" VerticalTextAlignment="Center" />
+                                <Label x:Name="AutoTestProgressValueLabel" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3" Text="-" VerticalTextAlignment="Center" />
+                        </Grid>
+
             <Grid ColumnDefinitions="*,*"
                                     RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                   ColumnSpacing="12"
@@ -169,6 +201,7 @@
 
                         <HorizontalStackLayout Spacing="12">
                                 <Button Text="Clear Chart" Clicked="OnClearChartClicked" />
+                            <Button Text="Export CSV" Clicked="OnExportChartCsvClicked" />
                         </HorizontalStackLayout>
 
                         <Label Text="PID Auto Tuning (試算)" FontSize="16" FontAttributes="Bold" />

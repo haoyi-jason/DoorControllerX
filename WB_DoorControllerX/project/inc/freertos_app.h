@@ -44,6 +44,8 @@ extern TaskHandle_t my_task01_handle;
 void my_task01_func(void *pvParameters);
 
 /* add user code begin 0 */
+extern TaskHandle_t door_ctrl_task_handle;
+extern TaskHandle_t comm_task_handle;
 
 /* add user code end 0 */
 

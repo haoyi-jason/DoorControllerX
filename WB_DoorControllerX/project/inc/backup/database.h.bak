@@ -28,7 +28,7 @@ typedef enum {
     DF_M2_START_DUTY,                /*!< M2 start PWM duty (%), 1-90, default 20 */
     DF_M2_MAX_DUTY,                  /*!< M2 max PWM duty (%), 1-90, default 80 */
     DF_M3_START_DUTY,                /*!< M3 start PWM duty (%), 1-90, default 30 */
-    DF_M3_MAX_DUTY,                  /*!< M3 max PWM duty (%), 1-90, default 60 */
+    DF_M3_MAX_DUTY,                  /*!< M3 max PWM duty (%), 1-50, default 50 */
     DF_M1_OPEN_ANGLE,                /*!< M1 open target angle (deg), 50-120, default 100 */
     DF_M2_OPEN_ANGLE,                /*!< M2 open target angle (deg), 50-120, default 100 */
     DF_M1_OPEN_REV_DUTY,             /*!< M1 reverse duty before unlock (%), 5-50, default 20 */
@@ -58,6 +58,8 @@ typedef enum {
     LD_M2_CURRENT,           /*!< M2 current feedback (ADC raw) */
     LD_DIP_VALUE,            /*!< DIP switch value at startup */
     LD_BLOCK_COUNT,          /*!< Consecutive obstruction count */
+    LD_BLOCK_RETRY_COUNT,    /*!< Automatic retry count after entering BLOCKED */
+    LD_BLOCK_SOURCE_STATE,   /*!< Source state that entered BLOCKED (sys_state_t) */
     LD_ERROR_CODE,           /*!< Last error code */
     LD_OPEN_COUNT,           /*!< Total open operations */
     LD_CLOSE_COUNT,          /*!< Total close operations */

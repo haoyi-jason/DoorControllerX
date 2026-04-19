@@ -31,6 +31,7 @@ extern "C" {
 /* Exported functions --------------------------------------------------------*/
 void    comm_task_init(void);
 void    comm_task_run(void *pvParameters);
+void    comm_task_rx_isr_handler(void);
 void    comm_send_response(uint8_t cmd, uint8_t *data, uint8_t len);
 uint8_t comm_calc_crc(uint8_t *buf, uint8_t len);
 

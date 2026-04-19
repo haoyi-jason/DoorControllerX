@@ -199,7 +199,7 @@ flowchart TD
     cd1 -->|no| cd2{重試>3}
     cd2 -->|yes| op4[BEEP]
     op4 --> e([結束])
-    cd2 -->|no| op3[M1 PWM1 += M1_OPEN_REV_DUTY_DELTA]
+    cd2 -->|no| op3[M1 PWM輸出值 += M1_OPEN_REV_DUTY_DELTA]
     op3 --> op1
     op5 --> cd3{M1 POS >= M1_OPEN_ANGLE}
     cd3 -->|yes| e
@@ -222,18 +222,18 @@ flowchart TD
 flowchart TD
     st([開始]) --> op1[M1 PWM1 反轉, PID位置控制, 更新PWM輸出]
     op1 --> cd1{M1到達原點 Z1 = 1}
-    cd1 -->|yes| op5[M1 PWM1 = M1_CLOSE_FWD_DUTY]
+    cd1 -->|yes| op5[M1 PWM反向持壓 = M1_CLOSE_REV_DUTY]
     cd1 -->|no| cd2{M1位置 < 原點誤差}
     cd2 -->|yes| op5
     cd2 -->|no| op1
-    op5 --> op6[Wait T = M1_CLOSE_FWD_DELAY]
+    op5 --> op6[Wait T = M1_CLOSE_HOLD_TIME]
     op6 --> op2[M3上鎖]
     op2 --> cd3{M3上鎖成功?}
     cd3 -->|yes| e([結束])
     cd3 -->|no| cd4{重試>3?}
     cd4 -->|yes| op4[Beep]
     op4 --> e
-    cd4 -->|no| op3[M1 PWM1 += M1_CLOSE_FWD_DUTY_DELTA]
+    cd4 -->|no| op3[M1 PWM輸出值 += M1_CLOSE_REV_DUTY_DELTA]
     op3 --> op2
 ```
 
@@ -305,6 +305,8 @@ flowchart TD
 | 15 | 主門回原點逾時 |
 | 16 | 主門原點開關異常 |
 | 17 | 上電上鎖方向/感測檢查失敗 |
+| 18 | 主門 POT 角度異常 (角度<30或>330) |
+| 19 | 副門 POT 角度異常 (角度<30或>330) |
 
 ### M1/M2 POT to POS 轉換
 - M1_POS = M1_POTx360/4096
@@ -353,11 +355,12 @@ flowchart TD
 | M3_MAX_DUTY | U8 | 1  | 50| 50 | M3 PWM 輸出上限(%), 不得超過50% |
 | M1_OPEN_ANGLE | U8 | 50  | 120| 100 | M1開啟角度 |
 | M2_OPEN_ANGLE | U8 | 50  | 120| 100 | M2開啟角度 |
-| M1_OPEN_REV_DUTY | U8 | 50  | 120| 100 | M1開門前反向輸出值 |
-| M1_OPEN_REV_DUTY_DELTA | U8 | 50  | 120| 100 | M1開門前反向輸出增值 |
-| M1_CLOSE_FWD_DUTY | U8 | 50  | 120| 100 | M1關門後正向輸出值 |
-| M1_CLOSE_FWD_DUTY_DELTA | U8 | 50  | 120| 100 | M1關門後正向輸出增值 |
-| M1_CLOSE_FWD_DELAY | U8 | 0  | 10| 2 | M1關門反向延時(s) |
+| M1_OPEN_REV_DUTY | U8 | 20  | 100| 30 | M1開門前反向輸出初始值 |
+| M1_OPEN_REV_DUTY_DELTA | U8 | 10  | 50| 20 | M1開門前反向輸出每次重試增值 |
+| M1_CLOSE_REV_DUTY | U8 | 20  | 100| 30 | M1關門到原點後反向持壓初始輸出值 |
+| M1_CLOSE_REV_DUTY_DELTA | U8 | 10  | 50| 30 | M1關門後反向持壓每次重試增值 |
+| M1_CLOSE_FWD_DELAY | U8 | 0  | 10| 2 | M1關門後反向持壓等待時間(s) |
+| M1_STARTUP_RELIEF_MS | U16 | 100  | 2000| 500 | 雙門上電自檢時M1機械釋壓脈衝時間(ms) |
 | M1_ZERO_ERROR | U8 | 1  | 20| 5 | M1上電歸零允許誤差(度), 在此範圍內可直接以目前POT角度歸零 |
 | M2_ZERO_ERROR | U8 | 1  | 20| 5 | M2上電歸零允許誤差(度), 在此範圍內可直接以目前POT角度歸零 |
 | MAX_OPEN_OPERATION_TIME | U8 | 10  | 120| 25 | 最大允許開門時間 |
@@ -415,8 +418,10 @@ flowchart TD
 | 15 | L-L-S-S | 主門回原點逾時 |
 | 16 | L-L-S-S-S | 主門原點開關異常 |
 | 17 | L-L-L | 上電上鎖方向/感測檢查失敗 |
+| 18 | L-L-L-S | 主門 POT 角度異常 |
+| 19 | L-L-L-S-S | 副門 POT 角度異常 |
 
-> 記憶規則: 0個長音=執行期錯誤(短音數=碼值); 1個長音=副門/電鎖啟動問題; 2個長音=主門問題; 3個長音=上電上鎖失敗
+> 記憶規則: 0個長音=執行期錯誤(短音數=碼值); 1個長音=副門/電鎖啟動問題; 2個長音=主門問題; 3個長音=上電上鎖或POT異常延伸碼
 
 ## 預期結果
 
@@ -437,7 +442,7 @@ flowchart TD
 - [ ] 調整錯誤警報時間為DF參數,單位(s)
 - [x] Live Data新增機械角度(POT原始讀值)
 - [x] 加入POT故障視窗判定（角度<30或>330）
-- [x] 雙門上電時先讓M1預開再測M2方向（避免機構壓住M2）
+- [x] 雙門上電時先讓M1短暫正轉釋壓（`DF_M1_STARTUP_RELIEF_MS`，預設500ms，非預開）再測M2方向，之後依序：M2→原點、測M1方向、M1→原點
 - [ ] 本輪門控功能穩定後，整理「機構特性 + 控制原則」模板文件（供後續新應用快速導入）
 - [x] 發生錯誤後, 可透過長按TEST (>3秒) 或通訊清除錯誤並回到待機狀態
 - [x] 自動開門/關門測試流程, 可以設定測試次數.

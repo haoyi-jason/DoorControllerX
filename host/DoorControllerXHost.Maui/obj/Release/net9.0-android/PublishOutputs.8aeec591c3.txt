@@ -1,0 +1,4 @@
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Maui\bin\Release\net9.0-android\publish\com.companyname.doorcontrollerxhost.maui-Signed.aab
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Maui\bin\Release\net9.0-android\publish\com.companyname.doorcontrollerxhost.maui.aab
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Maui\bin\Release\net9.0-android\publish\com.companyname.doorcontrollerxhost.maui-Signed.apk
+D:\SourceRespo\AT32_WS\DoorControllerX\host\DoorControllerXHost.Maui\bin\Release\net9.0-android\publish\_Microsoft.Android.Resource.Designer.dll

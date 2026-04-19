@@ -24,7 +24,7 @@ public static class DfParameterCatalog
         new() { Id = DfParamId.M1OpenRevDuty, Name = "DF_M1_OPEN_REV_DUTY", Min = 5, Max = 50, Default = 20 },
         new() { Id = DfParamId.M1OpenRevDutyDelta, Name = "DF_M1_OPEN_REV_DUTY_DELTA", Min = 1, Max = 20, Default = 5 },
         new() { Id = DfParamId.M1CloseRevDuty, Name = "DF_M1_CLOSE_REV_DUTY", Min = 5, Max = 50, Default = 20 },
-        new() { Id = DfParamId.M1CloseFwdDutyDelta, Name = "DF_M1_CLOSE_FWD_DUTY_DELTA", Min = 1, Max = 20, Default = 5 },
+        new() { Id = DfParamId.M1CloseRevDutyDelta, Name = "DF_M1_CLOSE_REV_DUTY_DELTA", Min = 1, Max = 20, Default = 5 },
         new() { Id = DfParamId.M1ZeroMin, Name = "DF_M1_ZERO_MIN", Min = 100, Max = 250, Default = 150 },
         new() { Id = DfParamId.M1ZeroMax, Name = "DF_M1_ZERO_MAX", Min = 100, Max = 350, Default = 210 },
         new() { Id = DfParamId.M2ZeroMin, Name = "DF_M2_ZERO_MIN", Min = 100, Max = 250, Default = 150 },
@@ -35,5 +35,7 @@ public static class DfParameterCatalog
         new() { Id = DfParamId.HomeZeroSampleTime, Name = "DF_HOME_ZERO_SAMPLE_TIME", Min = 1, Max = 5, Default = 1 },
         new() { Id = DfParamId.M2ZeroError, Name = "DF_M2_ZERO_ERROR", Min = 1, Max = 20, Default = 5 },
         new() { Id = DfParamId.AutoTestCycles, Name = "DF_AUTO_TEST_CYCLES", Min = 0, Max = 200, Default = 0 },
+        new() { Id = DfParamId.AutoTestOpenHoldSec, Name = "DF_AUTO_TEST_OPEN_HOLD_SEC", Min = 0, Max = 60, Default = 1 },
+        new() { Id = DfParamId.M1StartupReliefMs, Name = "DF_M1_STARTUP_RELIEF_MS", Min = 100, Max = 2000, Default = 500 },
     ];
 }

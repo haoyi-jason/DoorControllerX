@@ -24,4 +24,10 @@ public enum LiveDataId : byte
     CloseCount = 19,
     LockRetryCount = 20,
     OperationTimeMs = 21,
+    M1RawAngle = 22,
+    M2RawAngle = 23,
+    CloseStage = 25,
+    ResetReason = 26,
+    AutoTestTarget = 27,
+    AutoTestDone = 28,
 }

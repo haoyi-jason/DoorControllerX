@@ -17,4 +17,6 @@ public interface ITransportClient : IDisposable
     Task<uint> ReadParamAsync(byte id, int timeoutMs = 1000, CancellationToken cancellationToken = default);
 
     Task WriteParamAsync(byte id, uint value, int timeoutMs = 1000, CancellationToken cancellationToken = default);
+
+    Task WriteLiveAsync(byte id, uint value, int timeoutMs = 1000, CancellationToken cancellationToken = default);
 }

@@ -39,6 +39,10 @@ typedef enum {
     DOOR_ERROR
 } door_state_t;
 
+/* Exported variables --------------------------------------------------------*/
+extern volatile uint32_t g_dbg_reset_reason;     /* Reset reason: 0=normal, 1=IWDG, 2=WWDG, 3=software, 4=PIN, 5=POR, 99=HardFault */
+extern volatile uint32_t g_dbg_hardfault_stage;  /* Startup stage where HardFault occurred (if reset_reason=99) */
+
 /* Exported functions --------------------------------------------------------*/
 void door_ctrl_init(void);
 void door_ctrl_task(void *pvParameters);
@@ -55,6 +59,7 @@ int  door_check_lock_error(void);
 
 void door_block_detect(void);
 void door_beep(uint16_t duration_ms);
+void door_alarm_play(uint32_t error_code);
 void door_check_timeout(void);
 
 #ifdef __cplusplus

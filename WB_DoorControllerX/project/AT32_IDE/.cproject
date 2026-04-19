@@ -63,8 +63,6 @@
                                     <listOptionValue builtIn="false" value="&quot;../../../middlewares/freertos/source/portable/GCC/ARM_CM4F&quot;"/>
                                 </option>
                                 <option valueType="definedSymbols" IS_VALUE_EMPTY="false" superClass="ilg.gnuarmeclipse.managedbuild.cross.option.c.compiler.defs" name="Defined symbols (-D)" IS_BUILTIN_EMPTY="false" useByScannerDiscovery="true" id="ilg.gnuarmeclipse.managedbuild.cross.option.c.compiler.defs.1869892266">
-                                    <listOptionValue builtIn="false" value="TRACE"/>
-                                    <listOptionValue builtIn="false" value="OS_USE_TRACE_SEMIHOSTING_DEBUG"/>
                                     <listOptionValue builtIn="false" value="AT32F413RCT7"/>
                                     <listOptionValue builtIn="false" value="USE_STDPERIPH_DRIVER"/>
                                     <listOptionValue builtIn="false" value="ARM_MATH_CM4"/>

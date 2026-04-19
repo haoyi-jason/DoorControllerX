@@ -55,10 +55,10 @@ extern "C" {
 #define M2_HOME_READ()    gpio_input_data_bit_read(GPIOB, GPIO_PINS_3)
 
 /* Electric lock sensor reads ------------------------------------------------*/
-/* M3_UL (unlock sensor) → PC0 */
-#define M3_UL_READ()      gpio_input_data_bit_read(GPIOC, GPIO_PINS_0)
-/* M3_LL (lock sensor) → PC1 */
-#define M3_LL_READ()      gpio_input_data_bit_read(GPIOC, GPIO_PINS_1)
+/* M3_LL (lock sensor) → PC0 */
+#define M3_LL_READ()      gpio_input_data_bit_read(GPIOC, GPIO_PINS_0)
+/* M3_UL (unlock sensor) → PC1 */
+#define M3_UL_READ()      gpio_input_data_bit_read(GPIOC, GPIO_PINS_1)
 
 /* Trigger input reads -------------------------------------------------------*/
 /* TG_OPEN → PC5 (active-low: RESET when trigger active) */
@@ -91,6 +91,9 @@ extern "C" {
 /* LED (active high) → PD2 --------------------------------------------------*/
 #define LED_SET(x)        do { if(x) gpio_bits_set(GPIOD, GPIO_PINS_2);   \
                                else  gpio_bits_reset(GPIOD, GPIO_PINS_2); } while(0)
+
+/* TEST button (active-low: RESET when pressed) → PB11 ----------------------*/
+#define TEST_READ()       gpio_input_data_bit_read(GPIOB, GPIO_PINS_11)
 
 /* Exported functions --------------------------------------------------------*/
 void    board_io_init(void);

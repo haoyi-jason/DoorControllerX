@@ -32,6 +32,14 @@ public static class DoorControllerProtocol
         return BuildFrame(CmdWriteParam, data);
     }
 
+    public static byte[] BuildWriteLive(byte id, uint value)
+    {
+        Span<byte> data = stackalloc byte[5];
+        data[0] = id;
+        BinaryPrimitives.WriteUInt32BigEndian(data[1..], value);
+        return BuildFrame(CmdWriteLive, data);
+    }
+
     public static byte[] BuildFrame(byte command, ReadOnlySpan<byte> data)
     {
         var length = checked((byte)(1 + data.Length));

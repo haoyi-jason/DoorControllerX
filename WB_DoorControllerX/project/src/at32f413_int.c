@@ -32,6 +32,8 @@
 
 /* private includes ----------------------------------------------------------*/
 /* add user code begin private includes */
+#include "comm_task.h"
+#include "at32f413_bpr.h"  /* bpr_data_write for HardFault sentinel */
 
 /* add user code end private includes */
 
@@ -94,7 +96,15 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* add user code begin HardFault_IRQ 0 */
-
+  /* Hard fault occurred — write sentinel to BPR_DATA2 so main can detect this after reset */
+  extern volatile uint32_t g_dbg_startup_stage;
+  extern volatile uint32_t g_dbg_hardfault_stage;
+  g_dbg_hardfault_stage = g_dbg_startup_stage;  /* Snapshot stage when HardFault occurred */
+  extern volatile uint32_t g_dbg_reset_reason;
+  g_dbg_reset_reason = 99u;
+  /* BPR write access should already be enabled by rtc_init(); write sentinel before reset */
+  bpr_data_write(BPR_DATA2, 0xFAu);  /* HardFault sentinel — survives NVIC_SystemReset() */
+  NVIC_SystemReset();  /* Reset so main can detect and report HardFault via LD_RESET_REASON */
   /* add user code end HardFault_IRQ 0 */
   /* go to infinite loop when hard fault exception occurs */
   while (1)
@@ -228,6 +238,16 @@ void ADC1_2_IRQHandler(void)
   /* add user code begin ADC1_2_IRQ 1 */
 
   /* add user code end ADC1_2_IRQ 1 */
+}
+
+/**
+  * @brief  this function handles USART1 global interrupt.
+  * @param  none
+  * @retval none
+  */
+void USART1_IRQHandler(void)
+{
+  comm_task_rx_isr_handler();
 }
 
 /* add user code begin 1 */

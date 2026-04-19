@@ -20,7 +20,7 @@ public enum DfParamId : byte
     M1OpenRevDuty = 15,
     M1OpenRevDutyDelta = 16,
     M1CloseRevDuty = 17,
-    M1CloseFwdDutyDelta = 18,
+    M1CloseRevDutyDelta = 18,
     M1ZeroMin = 19,
     M1ZeroMax = 20,
     M2ZeroMin = 21,
@@ -31,4 +31,6 @@ public enum DfParamId : byte
     HomeZeroSampleTime = 26,
     M2ZeroError = 27,
     AutoTestCycles = 28,
+    AutoTestOpenHoldSec = 29,
+    M1StartupReliefMs = 30,
 }
