@@ -25,7 +25,8 @@ typedef enum {
     SYS_STATE_CLOSING,
     SYS_STATE_CLOSE_DONE,
     SYS_STATE_BLOCKED,
-    SYS_STATE_ERROR
+    SYS_STATE_ERROR,
+    SYS_STATE_TUNE_RUN
 } sys_state_t;
 
 /* Per-door substates --------------------------------------------------------*/

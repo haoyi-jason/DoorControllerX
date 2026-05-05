@@ -55,6 +55,7 @@
 #define REMOTE_CMD_LOCK            3u
 #define REMOTE_CMD_UNLOCK          4u
 #define REMOTE_CMD_CLEAR_ERROR     5u
+#define REMOTE_CMD_TUNE_RUN        6u
 
 #define TEST_LONG_PRESS_CLEAR_MS   3000u
 
@@ -73,6 +74,7 @@
 #define ALARM_CYCLE_GAP_MS       1000u
 #define ALARM_CYCLES                2u
 #define STARTUP_AUTO_OPEN_GUARD_MS 3000u
+#define AUTO_TEST_INTERVAL_DEFAULT_SEC 2u
 
 /* Private variables ---------------------------------------------------------*/
 static sys_state_t  sys_state   = SYS_STATE_INIT;
@@ -93,6 +95,7 @@ static flag_status test_btn_prev = SET;        /* last TEST button state */
 /* Non-blocking state timing helpers (advanced by door_ctrl_run each TIME_WINDOW). */
 static uint8_t  close_done_phase = 0u;
 static uint8_t  close_done_pot_bad = 0u;
+static uint8_t  close_done_auto_counted = 0u;
 static uint32_t close_done_tick_ms = 0u;
 static uint8_t  blocked_phase = 0u;
 static uint32_t blocked_tick_ms = 0u;
@@ -201,6 +204,11 @@ volatile float    g_dbg_m2_d12 = 0.0f;
 
 /* Private helpers -----------------------------------------------------------*/
 
+static void set_done_outputs(uint8_t open_done_active, uint8_t close_done_active);
+static float m1_pos(void);
+static float m2_pos(void);
+static void refresh_stopped_position(uint8_t motor_id);
+
 /** Return current FreeRTOS tick in ms */
 static uint32_t get_tick_ms(void)
 {
@@ -213,6 +221,159 @@ static uint8_t pid_duty_pct(float pid_out)
     float abs_pid_out = (pid_out > 0.0f) ? pid_out : -pid_out;
     if (abs_pid_out > 100.0f) abs_pid_out = 100.0f;
     return (uint8_t)abs_pid_out;
+}
+
+/**
+ * Apply deceleration zone cap: if |error| < decel_zone_deg, limit duty to
+ * decel_max_duty so the motor slows down before reaching the setpoint.
+ */
+static uint8_t apply_decel_zone(uint8_t duty, float error,
+                                uint8_t decel_zone_deg,
+                                uint8_t decel_max_duty)
+{
+    float abs_err = (error > 0.0f) ? error : -error;
+    if ((decel_zone_deg > 0u) && (abs_err < (float)decel_zone_deg)) {
+        if (duty > decel_max_duty) {
+            duty = decel_max_duty;
+        }
+    }
+    return duty;
+}
+
+static float pid_gain_from_df(uint8_t df_id)
+{
+    return ((float)db_get_param(df_id)) / 1000.0f;
+}
+
+static void pid_init_m1_from_df(void)
+{
+    pid_init(&pid_m1,
+             pid_gain_from_df(DF_M1_PID_KP_X1000),
+             pid_gain_from_df(DF_M1_PID_KI_X1000),
+             pid_gain_from_df(DF_M1_PID_KD_X1000));
+}
+
+static void pid_init_m2_from_df(void)
+{
+    pid_init(&pid_m2,
+             pid_gain_from_df(DF_M2_PID_KP_X1000),
+             pid_gain_from_df(DF_M2_PID_KI_X1000),
+             pid_gain_from_df(DF_M2_PID_KD_X1000));
+}
+
+static void run_fixed_pwm_tune(uint8_t dual_door)
+{
+    uint32_t target_motor = db_get_param(DF_TUNE_TARGET_MOTOR);
+    uint32_t setpoint_deg = db_get_param(DF_TUNE_SETPOINT_DEG);
+    uint32_t pwm_duty = db_get_param(DF_TUNE_PWM_DUTY);
+    uint32_t timeout_sec = db_get_param(DF_TUNE_TIMEOUT_SEC);
+    uint32_t timeout_ms = timeout_sec * 1000u;
+    uint32_t check_interval = db_get_param(DF_TIME_WINDOW);
+    uint32_t start_ms;
+    uint8_t use_m2 = (target_motor == 2u) ? 1u : 0u;
+
+    if (use_m2 && !dual_door) {
+        return;
+    }
+
+    sys_state = SYS_STATE_TUNE_RUN;
+    db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
+    set_done_outputs(0u, 0u);
+
+    if (use_m2) {
+        m2_state = DOOR_OPENING;
+        db_set_live(LD_M2_STATE, (uint32_t)m2_state);
+        db_set_live(LD_M2_SETPOINT, setpoint_deg * 100u);
+
+        motor_set_direction(MOTOR_M2, MOTOR_DIR_FWD);
+        motor_enable(MOTOR_M2);
+        RELAY2_SET(1);
+        motor_set_pwm(MOTOR_M2, (uint8_t)pwm_duty);
+        db_set_live(LD_M2_PWM, pwm_duty);
+    } else {
+        /* Safety: force M2 channel off during M1-only fixed-PWM tune. */
+        motor_set_pwm(MOTOR_M2, 0u);
+        motor_disable(MOTOR_M2);
+        RELAY2_SET(0);
+        db_set_live(LD_M2_PWM, 0u);
+
+        m1_state = DOOR_OPENING;
+        db_set_live(LD_M1_STATE, (uint32_t)m1_state);
+        db_set_live(LD_M1_SETPOINT, setpoint_deg * 100u);
+
+        motor_set_direction(MOTOR_M1, MOTOR_DIR_FWD);
+        motor_enable(MOTOR_M1);
+        RELAY1_SET(1);
+        motor_set_pwm(MOTOR_M1, (uint8_t)pwm_duty);
+        db_set_live(LD_M1_PWM, pwm_duty);
+    }
+
+    start_ms = get_tick_ms();
+    while (1) {
+        float pos = use_m2 ? m2_pos() : m1_pos();
+        if (pos >= (float)setpoint_deg) {
+            break;
+        }
+
+        if ((get_tick_ms() - start_ms) >= timeout_ms) {
+            db_set_live(LD_ERROR_CODE, ERR_TIMEOUT);
+            sys_state = SYS_STATE_ERROR;
+
+            if (use_m2) {
+                m2_state = DOOR_ERROR;
+                db_set_live(LD_M2_STATE, (uint32_t)m2_state);
+            } else {
+                m1_state = DOOR_ERROR;
+                db_set_live(LD_M1_STATE, (uint32_t)m1_state);
+            }
+
+            db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
+            break;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(check_interval));
+        FEED_WDT();
+    }
+
+    if (use_m2) {
+        motor_set_pwm(MOTOR_M2, 0u);
+        motor_disable(MOTOR_M2);
+        RELAY2_SET(0);
+        refresh_stopped_position(MOTOR_M2);
+        db_set_live(LD_M2_PWM, 0u);
+        db_set_live(LD_M2_SETPOINT, 0u);
+
+        if (sys_state != SYS_STATE_ERROR) {
+            m2_state = DOOR_OPEN;
+            db_set_live(LD_M2_STATE, (uint32_t)m2_state);
+        }
+    } else {
+        motor_set_pwm(MOTOR_M1, 0u);
+        motor_disable(MOTOR_M1);
+        RELAY1_SET(0);
+        refresh_stopped_position(MOTOR_M1);
+        db_set_live(LD_M1_PWM, 0u);
+        db_set_live(LD_M1_SETPOINT, 0u);
+
+        if (sys_state != SYS_STATE_ERROR) {
+            m1_state = DOOR_OPEN;
+            db_set_live(LD_M1_STATE, (uint32_t)m1_state);
+        }
+    }
+
+    if (sys_state != SYS_STATE_ERROR) {
+        /* Prevent immediate WAIT auto-open retrigger from current position after tune. */
+        wait_auto_open_armed = 0u;
+        wait_auto_open_guard_until_ms = get_tick_ms() + STARTUP_AUTO_OPEN_GUARD_MS;
+        sys_state = SYS_STATE_WAIT;
+        db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
+    }
+}
+
+static void set_done_outputs(uint8_t open_done_active, uint8_t close_done_active)
+{
+    SET_OPEN_DONE(open_done_active ? 1u : 0u);
+    SET_CLOSE_DONE(close_done_active ? 1u : 0u);
 }
 
 /** Read M1 angle in degrees */
@@ -254,7 +415,9 @@ static float m2_pos(void)
 
 static float m1_raw_pos(void)
 {
-    return adc_to_position(adc_read_m1_pot());
+    float raw = adc_to_position(adc_read_m1_pot());
+    db_set_live(LD_M1_RAW_ANGLE, (uint32_t)(raw * 100.0f));
+    return raw;
 }
 
 static void delay_ms_feed_wdt(uint32_t delay_ms)
@@ -279,28 +442,60 @@ static void delay_rtos_ms_feed_wdt(uint32_t delay_ms)
 
 static float m2_raw_pos(void)
 {
-    return adc_to_position(adc_read_m2_pot());
+    float raw = adc_to_position(adc_read_m2_pot());
+    db_set_live(LD_M2_RAW_ANGLE, (uint32_t)(raw * 100.0f));
+    return raw;
 }
 
 static void clear_error_state(void)
 {
     alarm_played = 0u;
     LED_SET(0);
+    motor_set_pwm(MOTOR_M1, 0u);
+    motor_set_pwm(MOTOR_M2, 0u);
+    motor_disable(MOTOR_M1);
+    motor_disable(MOTOR_M2);
     sys_state = SYS_STATE_WAIT;
     m1_state  = DOOR_IDLE;
     m2_state  = DOOR_IDLE;
     blocked_from_state = SYS_STATE_WAIT;
     blocked_retry_count = 0u;
     blocked_phase = 0u;
+    blocked_tick_ms = 0u;
     close_done_phase = 0u;
     close_done_pot_bad = 0u;
+    close_done_auto_counted = 0u;
+    close_done_tick_ms = 0u;
+    closing_flow_reset();
+    auto_test_active = 0u;
+    auto_test_target_cycles = 0u;
+    auto_test_done_cycles = 0u;
+    auto_test_open_hold_until_ms = 0u;
+    wait_auto_open_armed = 0u;
+    wait_auto_open_guard_until_ms = get_tick_ms() + STARTUP_AUTO_OPEN_GUARD_MS;
     test_press_start_ms = 0u;
     db_set_live(LD_ERROR_CODE, 0u);
+    db_set_live(LD_BLOCK_COUNT, 0u);
     db_set_live(LD_BLOCK_RETRY_COUNT, 0u);
     db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
+    db_set_live(LD_CLOSE_STAGE, CLOSE_STAGE_IDLE);
+    db_set_live(LD_AUTO_TEST_TARGET, auto_test_target_cycles);
+    db_set_live(LD_AUTO_TEST_DONE, auto_test_done_cycles);
+    db_set_live(LD_AUTO_TEST_OPEN_HOLD_SEC, AUTO_TEST_INTERVAL_DEFAULT_SEC);
     db_set_live(LD_M1_STATE,  (uint32_t)m1_state);
     db_set_live(LD_M2_STATE,  (uint32_t)m2_state);
     db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
+}
+
+static void reset_block_retry_context(void)
+{
+    db_set_live(LD_BLOCK_COUNT, 0u);
+    blocked_retry_count = 0u;
+    db_set_live(LD_BLOCK_RETRY_COUNT, 0u);
+    blocked_from_state = SYS_STATE_WAIT;
+    db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
+    blocked_phase = 0u;
+    blocked_tick_ms = 0u;
 }
 
 static void m1_set_zero_reference(void)
@@ -718,10 +913,8 @@ void door_ctrl_init(void)
 
     db_set_live(LD_DIP_VALUE, dip);
 
-//    pid_init(&pid_m1, 1.0f, 0.05f, 0.1f);
-    pid_init(&pid_m1, 0.092f, 0.014f, 0.0f);
-    pid_init(&pid_m2, 0.092f, 0.014f, 0.0f);
-//    pid_init(&pid_m2, 1.0f, 0.05f, 0.1f);
+    pid_init_m1_from_df();
+    pid_init_m2_from_df();
 
     sys_state = SYS_STATE_WAIT;
     m1_state  = DOOR_IDLE;
@@ -741,6 +934,7 @@ void door_ctrl_init(void)
     db_set_live(LD_CLOSE_STAGE, CLOSE_STAGE_IDLE);
     db_set_live(LD_AUTO_TEST_TARGET, 0u);
     db_set_live(LD_AUTO_TEST_DONE, 0u);
+    db_set_live(LD_AUTO_TEST_OPEN_HOLD_SEC, AUTO_TEST_INTERVAL_DEFAULT_SEC);
 
     g_dbg_startup_stage = 2u;
     startup_error = door_startup_sequence();
@@ -1010,16 +1204,20 @@ void door_main_open(void)
     uint32_t block_count   = 0u;
     uint32_t detect_time   = db_get_param(DF_BLOCK_DETECT_TIME);
     uint32_t check_interval= (uint32_t)db_get_param(DF_TIME_WINDOW);
+    uint32_t no_check_angle= db_get_param(DF_BLOCK_NO_CHECK_ANGLE);
+    uint32_t block_free_angle = db_get_param(DF_M1_BLOCK_FREE_ANGLE);
     uint32_t checks_per_window;
     uint32_t check_cnt;
+    uint8_t  lock_is_unlocked;
 
     checks_per_window = (detect_time > check_interval) ? (detect_time / check_interval) : 1u;
 
     m1_state = DOOR_OPENING;
     db_set_live(LD_M1_STATE, (uint32_t)m1_state);
 
-    /* --- Step 1: reverse-unlock M1 if electric lock is enabled --- */
-    if (has_lock) {
+    /* --- Step 1: reverse-unlock M1 if electric lock is enabled and currently locked --- */
+    lock_is_unlocked = (M3_UL_READ() == RESET && M3_LL_READ() != RESET) ? 1u : 0u;
+    if (has_lock && !lock_is_unlocked) {
         for (lock_retry = 0u; lock_retry < MAX_LOCK_RETRIES; lock_retry++) {
 
             /* Brief reverse to relieve mechanical pressure on the lock */
@@ -1060,7 +1258,7 @@ void door_main_open(void)
     }
 
     /* --- Step 2: PID forward to open angle --- */
-    pid_init(&pid_m1, 1.0f, 0.05f, 0.1f);
+    pid_init_m1_from_df();
 
     motor_set_direction(MOTOR_M1, MOTOR_DIR_FWD);
     motor_enable(MOTOR_M1);
@@ -1077,9 +1275,12 @@ void door_main_open(void)
             break;  /* reached target */
         }
 
-        /* PID compute */
+        /* PID compute with decel zone */
         float pid_out = pid_compute(&pid_m1, (float)open_angle, pos, (float)check_interval / 1000.0f);
         uint8_t duty = pid_duty_pct(pid_out);
+        duty = apply_decel_zone(duty, (float)open_angle - pos,
+                                (uint8_t)db_get_param(DF_M1_DECEL_ZONE_DEG),
+                                (uint8_t)db_get_param(DF_M1_DECEL_MAX_DUTY));
         motor_set_pwm(MOTOR_M1, duty);
 
         vTaskDelay(pdMS_TO_TICKS(check_interval));
@@ -1094,34 +1295,20 @@ void door_main_open(void)
         /* Obstruction detection: sample every check_interval, check every detect_time */
         check_cnt++;
         if (check_cnt >= checks_per_window) {
-            /* In dual-door mode, when M2 has started opening, avoid transient false block on M1. */
-            if (dual_door && m2_state == DOOR_OPENING) {
-                prev_pos = pos;
-                check_cnt = 0u;
-                block_count = 0u;
-                continue;
-            }
-
-            if (check_obstruction(pos, prev_pos)) {
+            if (pos >= (float)no_check_angle && pos <= (float)block_free_angle && check_obstruction(pos, prev_pos)) {
                 block_count++;
                 db_set_live(LD_BLOCK_COUNT, block_count);
-                if (block_count >= MAX_BLOCK_RETRIES) {
-                    motor_set_pwm(MOTOR_M1, 0u);
-                    motor_disable(MOTOR_M1);
-                    RELAY1_SET(0);
-                    door_beep(BEEP_SHORT_MS);   /* single alert: entering blocked-retry */
-                    m1_state  = DOOR_BLOCKED;
-                    blocked_from_state = SYS_STATE_OPENING;
-                    sys_state = SYS_STATE_BLOCKED;
-                    db_set_live(LD_M1_STATE,  (uint32_t)m1_state);
-                    db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
-                    db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
-                    return;
-                }
-                /* Wait and retry */
                 motor_set_pwm(MOTOR_M1, 0u);
-                delay_rtos_ms_feed_wdt(retry_delay_ms);
-                motor_set_pwm(MOTOR_M1, (uint8_t)db_get_param(DF_M1_START_DUTY));
+                motor_disable(MOTOR_M1);
+                RELAY1_SET(0);
+                door_beep(BEEP_SHORT_MS);   /* single alert: entering blocked-retry */
+                m1_state  = DOOR_BLOCKED;
+                blocked_from_state = SYS_STATE_OPENING;
+                sys_state = SYS_STATE_BLOCKED;
+                db_set_live(LD_M1_STATE,  (uint32_t)m1_state);
+                db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
+                db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
+                return;
             } else {
                 block_count = 0u;  /* moving normally �� reset consecutive counter */
             }
@@ -1154,6 +1341,7 @@ void door_main_close(void)
     uint8_t  has_lock       = (dip & 0x02u) ? 1u : 0u;
     uint32_t zero_error     = db_get_param(DF_M1_ZERO_ERROR);
     uint32_t close_hold_ms  = db_get_param(DF_M1_CLOSE_HOLD_TIME) * 1000u;
+    uint32_t lock_active_ms = db_get_param(DF_LOCK_ACTIVE_TIME) * 100u;
     uint32_t retry_delay_ms = db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u;
     uint32_t detect_time    = db_get_param(DF_BLOCK_DETECT_TIME);
     uint32_t check_interval = (uint32_t)db_get_param(DF_TIME_WINDOW);
@@ -1161,13 +1349,15 @@ void door_main_close(void)
     float    pos;
     float    raw_pos;
 
-    if (has_lock && close_hold_ms > 0u) {
-        close_lock_delay_ms = close_hold_ms / 2u;
-        if (close_lock_delay_ms < check_interval) {
-            close_lock_delay_ms = check_interval;
+    if (has_lock) {
+        if (close_hold_ms > lock_active_ms) {
+            close_lock_delay_ms = close_hold_ms - lock_active_ms;
+        } else {
+            close_lock_delay_ms = 0u;
         }
-        if (close_lock_delay_ms >= close_hold_ms) {
-            close_lock_delay_ms = close_hold_ms - 1u;
+
+        if (close_lock_delay_ms > 0u && close_lock_delay_ms < check_interval) {
+            close_lock_delay_ms = check_interval;
         }
     }
 
@@ -1187,7 +1377,7 @@ void door_main_close(void)
         m1_state = DOOR_CLOSING;
         db_set_live(LD_M1_STATE, (uint32_t)m1_state);
 
-        pid_init(&pid_m1, 1.0f, 0.05f, 0.1f);
+        pid_init_m1_from_df();
         motor_set_direction(MOTOR_M1, MOTOR_DIR_REV);
         motor_enable(MOTOR_M1);
         RELAY1_SET(1);
@@ -1240,6 +1430,20 @@ void door_main_close(void)
         door_lock();
         /* Check lock sensor (active-low): LL asserted, UL deasserted. */
         if (M3_LL_READ() == RESET && M3_UL_READ() != RESET) {
+            if ((int32_t)(get_tick_ms() - m1_close_hold_until_ms) >= 0) {
+                motor_set_pwm(MOTOR_M1, 0u);
+                motor_disable(MOTOR_M1);
+                RELAY1_SET(0);
+                adc_reset_pot_filter(MOTOR_M1);
+                (void)m1_pos();
+
+                m1_state = DOOR_CLOSED;
+                db_set_live(LD_M1_STATE, (uint32_t)m1_state);
+                m1_close_completed = 1u;
+                m1_close_step = M1_CLOSE_STEP_IDLE;
+                return;
+            }
+
             m1_close_step = M1_CLOSE_STEP_HOLD_WAIT;
             return;
         }
@@ -1321,6 +1525,9 @@ void door_main_close(void)
     {
         float pid_out = pid_compute(&pid_m1, 0.0f, pos, (float)check_interval / 1000.0f);
         uint8_t duty = pid_duty_pct(pid_out);
+        duty = apply_decel_zone(duty, pos,
+                                (uint8_t)db_get_param(DF_M1_DECEL_ZONE_DEG),
+                                (uint8_t)db_get_param(DF_M1_DECEL_MAX_DUTY));
         motor_set_pwm(MOTOR_M1, duty);
     }
 
@@ -1337,23 +1544,18 @@ void door_main_close(void)
         if (check_obstruction(pos, m1_close_prev_pos)) {
             m1_close_block_count++;
             db_set_live(LD_BLOCK_COUNT, m1_close_block_count);
-            if (m1_close_block_count >= MAX_BLOCK_RETRIES) {
-                motor_set_pwm(MOTOR_M1, 0u);
-                motor_disable(MOTOR_M1);
-                RELAY1_SET(0);
-                door_beep(BEEP_SHORT_MS);
-                m1_state  = DOOR_BLOCKED;
-                blocked_from_state = SYS_STATE_CLOSING;
-                sys_state = SYS_STATE_BLOCKED;
-                db_set_live(LD_M1_STATE,  (uint32_t)m1_state);
-                db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
-                db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
-                m1_close_step = M1_CLOSE_STEP_IDLE;
-                return;
-            }
             motor_set_pwm(MOTOR_M1, 0u);
-            m1_close_retry_until_ms = get_tick_ms() + retry_delay_ms;
-            m1_close_step = M1_CLOSE_STEP_RETRY_WAIT;
+            motor_disable(MOTOR_M1);
+            RELAY1_SET(0);
+            door_beep(BEEP_SHORT_MS);
+            m1_state  = DOOR_BLOCKED;
+            blocked_from_state = SYS_STATE_CLOSING;
+            sys_state = SYS_STATE_BLOCKED;
+            db_set_live(LD_M1_STATE,  (uint32_t)m1_state);
+            db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
+            db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
+            m1_close_step = M1_CLOSE_STEP_IDLE;
+            return;
         } else {
             m1_close_block_count = 0u;
         }
@@ -1374,11 +1576,12 @@ void door_sub_open(void)
 {
     uint32_t diff_angle    = db_get_param(DF_OPEN_DIFF_ANGLE);
     uint32_t open_angle    = db_get_param(DF_M2_OPEN_ANGLE);
-    uint32_t retry_delay_ms= db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u;
     uint32_t check_interval= (uint32_t)db_get_param(DF_TIME_WINDOW);
     float    p1, p2, pos;
     uint32_t block_count   = 0u;
     uint32_t detect_time   = db_get_param(DF_BLOCK_DETECT_TIME);
+    uint32_t no_check_angle= db_get_param(DF_BLOCK_NO_CHECK_ANGLE);
+    uint32_t block_free_angle = db_get_param(DF_M2_BLOCK_FREE_ANGLE);
     uint32_t checks_per_window;
     uint32_t check_cnt;
     float    prev_pos;
@@ -1399,7 +1602,7 @@ void door_sub_open(void)
         FEED_WDT();
     }
 
-    pid_init(&pid_m2, 1.0f, 0.05f, 0.1f);
+    pid_init_m2_from_df();
     motor_set_direction(MOTOR_M2, MOTOR_DIR_FWD);
     motor_enable(MOTOR_M2);
     RELAY2_SET(1);
@@ -1415,6 +1618,9 @@ void door_sub_open(void)
 
         float pid_out = pid_compute(&pid_m2, (float)open_angle, pos, (float)check_interval / 1000.0f);
         uint8_t duty = pid_duty_pct(pid_out);
+        duty = apply_decel_zone(duty, (float)open_angle - pos,
+                                (uint8_t)db_get_param(DF_M2_DECEL_ZONE_DEG),
+                                (uint8_t)db_get_param(DF_M2_DECEL_MAX_DUTY));
         motor_set_pwm(MOTOR_M2, duty);
 
         vTaskDelay(pdMS_TO_TICKS(check_interval));
@@ -1428,25 +1634,20 @@ void door_sub_open(void)
 
         check_cnt++;
         if (check_cnt >= checks_per_window) {
-            if (check_obstruction(pos, prev_pos)) {
+            if (pos >= (float)no_check_angle && pos <= (float)block_free_angle && check_obstruction(pos, prev_pos)) {
                 block_count++;
                 db_set_live(LD_BLOCK_COUNT, block_count);
-                if (block_count >= MAX_BLOCK_RETRIES) {
-                    motor_set_pwm(MOTOR_M2, 0u);
-                    motor_disable(MOTOR_M2);
-                    RELAY2_SET(0);
-                    door_beep(BEEP_SHORT_MS);   /* single alert: entering blocked-retry */
-                    m2_state  = DOOR_BLOCKED;
-                    blocked_from_state = SYS_STATE_OPENING;
-                    sys_state = SYS_STATE_BLOCKED;
-                    db_set_live(LD_M2_STATE,  (uint32_t)m2_state);
-                    db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
-                    db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
-                    return;
-                }
                 motor_set_pwm(MOTOR_M2, 0u);
-                delay_rtos_ms_feed_wdt(retry_delay_ms);
-                motor_set_pwm(MOTOR_M2, (uint8_t)db_get_param(DF_M2_START_DUTY));
+                motor_disable(MOTOR_M2);
+                RELAY2_SET(0);
+                door_beep(BEEP_SHORT_MS);   /* single alert: entering blocked-retry */
+                m2_state  = DOOR_BLOCKED;
+                blocked_from_state = SYS_STATE_OPENING;
+                sys_state = SYS_STATE_BLOCKED;
+                db_set_live(LD_M2_STATE,  (uint32_t)m2_state);
+                db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
+                db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
+                return;
             } else {
                 block_count = 0u;  /* moving normally �� reset consecutive counter */
             }
@@ -1476,7 +1677,6 @@ void door_sub_close(void)
     uint32_t diff_angle     = db_get_param(DF_OPEN_DIFF_ANGLE);
     uint32_t m2_open_angle  = db_get_param(DF_M2_OPEN_ANGLE);
     uint32_t zero_error     = db_get_param(DF_M2_ZERO_ERROR);
-    uint32_t retry_delay_ms = db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u;
     uint32_t check_interval = (uint32_t)db_get_param(DF_TIME_WINDOW);
     uint32_t detect_time    = db_get_param(DF_BLOCK_DETECT_TIME);
     float    pos;
@@ -1495,7 +1695,7 @@ void door_sub_close(void)
         m2_state = DOOR_CLOSING;
         db_set_live(LD_M2_STATE, (uint32_t)m2_state);
 
-        pid_init(&pid_m2, 1.0f, 0.05f, 0.1f);
+        pid_init_m2_from_df();
         motor_set_direction(MOTOR_M2, MOTOR_DIR_REV);
         motor_enable(MOTOR_M2);
         RELAY2_SET(1);
@@ -1544,6 +1744,9 @@ void door_sub_close(void)
     {
         float pid_out = pid_compute(&pid_m2, 0.0f, pos, (float)check_interval / 1000.0f);
         uint8_t duty = pid_duty_pct(pid_out);
+        duty = apply_decel_zone(duty, pos,
+                                (uint8_t)db_get_param(DF_M2_DECEL_ZONE_DEG),
+                                (uint8_t)db_get_param(DF_M2_DECEL_MAX_DUTY));
         motor_set_pwm(MOTOR_M2, duty);
     }
 
@@ -1560,23 +1763,18 @@ void door_sub_close(void)
         if (check_obstruction(pos, m2_close_prev_pos)) {
             m2_close_block_count++;
             db_set_live(LD_BLOCK_COUNT, m2_close_block_count);
-            if (m2_close_block_count >= MAX_BLOCK_RETRIES) {
-                motor_set_pwm(MOTOR_M2, 0u);
-                motor_disable(MOTOR_M2);
-                RELAY2_SET(0);
-                door_beep(BEEP_SHORT_MS);
-                m2_state  = DOOR_BLOCKED;
-                blocked_from_state = SYS_STATE_CLOSING;
-                sys_state = SYS_STATE_BLOCKED;
-                db_set_live(LD_M2_STATE,  (uint32_t)m2_state);
-                db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
-                db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
-                m2_close_step = M2_CLOSE_STEP_IDLE;
-                return;
-            }
             motor_set_pwm(MOTOR_M2, 0u);
-            m2_close_retry_until_ms = get_tick_ms() + retry_delay_ms;
-            m2_close_step = M2_CLOSE_STEP_RETRY_WAIT;
+            motor_disable(MOTOR_M2);
+            RELAY2_SET(0);
+            door_beep(BEEP_SHORT_MS);
+            m2_state  = DOOR_BLOCKED;
+            blocked_from_state = SYS_STATE_CLOSING;
+            sys_state = SYS_STATE_BLOCKED;
+            db_set_live(LD_M2_STATE,  (uint32_t)m2_state);
+            db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)blocked_from_state);
+            db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
+            m2_close_step = M2_CLOSE_STEP_IDLE;
+            return;
         } else {
             m2_close_block_count = 0u;
         }
@@ -1625,8 +1823,12 @@ void door_ctrl_run(void)
 
     db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
 
-    cfg_auto_cycles = db_get_param(DF_AUTO_TEST_CYCLES);
-    cfg_auto_open_hold_sec = db_get_param(DF_AUTO_TEST_OPEN_HOLD_SEC);
+    cfg_auto_cycles = db_get_live(LD_AUTO_TEST_TARGET);
+    cfg_auto_open_hold_sec = db_get_live(LD_AUTO_TEST_OPEN_HOLD_SEC);
+    if (cfg_auto_open_hold_sec == 0u) {
+        cfg_auto_open_hold_sec = AUTO_TEST_INTERVAL_DEFAULT_SEC;
+        db_set_live(LD_AUTO_TEST_OPEN_HOLD_SEC, cfg_auto_open_hold_sec);
+    }
     if (cfg_auto_cycles == 0u) {
         auto_test_active = 0u;
         auto_test_target_cycles = 0u;
@@ -1683,22 +1885,15 @@ void door_ctrl_run(void)
             switch (remote_cmd) {
             case REMOTE_CMD_OPEN:
                 if (sys_state == SYS_STATE_WAIT || sys_state == SYS_STATE_CLOSE_DONE) {
-                    db_set_live(LD_BLOCK_COUNT, 0u);
-                    blocked_retry_count = 0u;
-                    db_set_live(LD_BLOCK_RETRY_COUNT, 0u);
-                    db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)SYS_STATE_WAIT);
+                    reset_block_retry_context();
                     operation_start_tick = get_tick_ms();
                     sys_state = SYS_STATE_OPENING;
                 }
                 break;
 
             case REMOTE_CMD_CLOSE:
-                if (sys_state == SYS_STATE_OPEN_DONE ||
-                    (sys_state == SYS_STATE_WAIT && (m1_state == DOOR_OPEN || m2_state == DOOR_OPEN))) {
-                    db_set_live(LD_BLOCK_COUNT, 0u);
-                    blocked_retry_count = 0u;
-                    db_set_live(LD_BLOCK_RETRY_COUNT, 0u);
-                    db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)SYS_STATE_WAIT);
+                if (sys_state == SYS_STATE_OPEN_DONE || sys_state == SYS_STATE_WAIT) {
+                    reset_block_retry_context();
                     operation_start_tick = get_tick_ms();
                     closing_flow_reset();
                     sys_state = SYS_STATE_CLOSING;
@@ -1718,8 +1913,14 @@ void door_ctrl_run(void)
                 break;
 
             case REMOTE_CMD_CLEAR_ERROR:
-                if (sys_state == SYS_STATE_ERROR) {
+                if (sys_state == SYS_STATE_ERROR || sys_state == SYS_STATE_BLOCKED) {
                     clear_error_state();
+                }
+                break;
+
+            case REMOTE_CMD_TUNE_RUN:
+                if (sys_state == SYS_STATE_WAIT || sys_state == SYS_STATE_OPEN_DONE || sys_state == SYS_STATE_CLOSE_DONE) {
+                    run_fixed_pwm_tune(dual_door);
                 }
                 break;
 
@@ -1737,8 +1938,10 @@ void door_ctrl_run(void)
     /* ---------------------------------------------------------------------- */
     case SYS_STATE_INIT:
         db_set_live(LD_CLOSE_STAGE, CLOSE_STAGE_IDLE);
+        set_done_outputs(0u, 0u);
         close_done_phase = 0u;
         close_done_pot_bad = 0u;
+        close_done_auto_counted = 0u;
         blocked_phase = 0u;
         wait_auto_open_armed = (pos < (float)db_get_param(DF_OPEN_TRIGGER_ANGLE)) ? 1u : 0u;
         sys_state = SYS_STATE_WAIT;
@@ -1747,16 +1950,15 @@ void door_ctrl_run(void)
     /* ---------------------------------------------------------------------- */
     case SYS_STATE_WAIT:
         db_set_live(LD_CLOSE_STAGE, CLOSE_STAGE_IDLE);
+        set_done_outputs(0u, 0u);
         close_done_phase = 0u;
         close_done_pot_bad = 0u;
+        close_done_auto_counted = 0u;
         blocked_phase = 0u;
 
         if (auto_test_active) {
             wait_auto_open_armed = 0u;
-            db_set_live(LD_BLOCK_COUNT, 0u);
-            blocked_retry_count = 0u;
-            db_set_live(LD_BLOCK_RETRY_COUNT, 0u);
-            db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)SYS_STATE_WAIT);
+            reset_block_retry_context();
             operation_start_tick = get_tick_ms();
             sys_state = SYS_STATE_OPENING;
             break;
@@ -1777,10 +1979,7 @@ void door_ctrl_run(void)
             /* Auto-open trigger: upward crossing past trigger angle (edge-triggered). */
             if (wait_auto_open_armed && pos >= trigger) {
                 wait_auto_open_armed = 0u;
-                db_set_live(LD_BLOCK_COUNT, 0u);
-                blocked_retry_count = 0u;
-                db_set_live(LD_BLOCK_RETRY_COUNT, 0u);
-                db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)SYS_STATE_WAIT);
+                reset_block_retry_context();
                 operation_start_tick = get_tick_ms();
                 sys_state = SYS_STATE_OPENING;
                 break;
@@ -1790,10 +1989,7 @@ void door_ctrl_run(void)
         /* TG_OPEN active (active-low) */
         if (TG_OPEN_READ() == RESET) {
             wait_auto_open_armed = 0u;
-            db_set_live(LD_BLOCK_COUNT, 0u);
-            blocked_retry_count = 0u;
-            db_set_live(LD_BLOCK_RETRY_COUNT, 0u);
-            db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)SYS_STATE_WAIT);
+            reset_block_retry_context();
             operation_start_tick = get_tick_ms();
             sys_state = SYS_STATE_OPENING;
         }
@@ -1802,6 +1998,7 @@ void door_ctrl_run(void)
     /* ---------------------------------------------------------------------- */
     case SYS_STATE_OPENING:
         db_set_live(LD_CLOSE_STAGE, CLOSE_STAGE_IDLE);
+        set_done_outputs(0u, 0u);
         db_set_live(LD_OPEN_COUNT, db_get_live(LD_OPEN_COUNT) + 1u);
         LED_SET(1);
 
@@ -1833,6 +2030,7 @@ void door_ctrl_run(void)
         }
 
         if (sys_state != SYS_STATE_ERROR && sys_state != SYS_STATE_BLOCKED) {
+            reset_block_retry_context();
             sys_state = SYS_STATE_OPEN_DONE;
         }
         break;
@@ -1840,7 +2038,7 @@ void door_ctrl_run(void)
     /* ---------------------------------------------------------------------- */
     case SYS_STATE_OPEN_DONE:
         db_set_live(LD_CLOSE_STAGE, CLOSE_STAGE_IDLE);
-        SET_OPEN_DONE(1);
+        set_done_outputs(1u, 0u);
         LED_SET(1);
 
         if (auto_test_active) {
@@ -1851,11 +2049,8 @@ void door_ctrl_run(void)
                 break;
             }
             auto_test_open_hold_until_ms = 0u;
-            SET_OPEN_DONE(0);
-            db_set_live(LD_BLOCK_COUNT, 0u);
-            blocked_retry_count = 0u;
-            db_set_live(LD_BLOCK_RETRY_COUNT, 0u);
-            db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)SYS_STATE_WAIT);
+            set_done_outputs(0u, 0u);
+            reset_block_retry_context();
             operation_start_tick = get_tick_ms();
             closing_flow_reset();
             sys_state = SYS_STATE_CLOSING;
@@ -1865,11 +2060,8 @@ void door_ctrl_run(void)
         /* Hold OPEN_DONE high until close trigger */
         if (TG_CLOSE_READ() == RESET) {
             auto_test_open_hold_until_ms = 0u;
-            SET_OPEN_DONE(0);
-            db_set_live(LD_BLOCK_COUNT, 0u);
-            blocked_retry_count = 0u;
-            db_set_live(LD_BLOCK_RETRY_COUNT, 0u);
-            db_set_live(LD_BLOCK_SOURCE_STATE, (uint32_t)SYS_STATE_WAIT);
+            set_done_outputs(0u, 0u);
+            reset_block_retry_context();
             operation_start_tick = get_tick_ms();
             closing_flow_reset();
             sys_state = SYS_STATE_CLOSING;
@@ -1878,7 +2070,7 @@ void door_ctrl_run(void)
 
     /* ---------------------------------------------------------------------- */
     case SYS_STATE_CLOSING:
-        SET_OPEN_DONE(0);
+        set_done_outputs(0u, 0u);
         if (!closing_started) {
             db_set_live(LD_CLOSE_COUNT, db_get_live(LD_CLOSE_COUNT) + 1u);
             closing_started = 1u;
@@ -1913,6 +2105,7 @@ void door_ctrl_run(void)
 
             if (m1_close_completed && m2_close_completed) {
                 closing_flow_reset();
+                reset_block_retry_context();
                 sys_state = SYS_STATE_CLOSE_DONE;
             }
         } else {
@@ -1923,6 +2116,7 @@ void door_ctrl_run(void)
             }
             if (m1_close_completed) {
                 closing_flow_reset();
+                reset_block_retry_context();
                 sys_state = SYS_STATE_CLOSE_DONE;
             }
         }
@@ -1931,9 +2125,10 @@ void door_ctrl_run(void)
     /* ---------------------------------------------------------------------- */
     case SYS_STATE_CLOSE_DONE: {
         db_set_live(LD_CLOSE_STAGE, CLOSE_STAGE_IDLE);
+        set_done_outputs(0u, 1u);
 
         if (close_done_phase == 0u) {
-            /* Phase 0: evaluate home window once and start CLOSE_DONE pulse. */
+            /* Phase 0: evaluate home window once and latch CLOSE_DONE high. */
             float   pot_min = (float)db_get_param(DF_M1_ZERO_MIN);
             float   pot_max = (float)db_get_param(DF_M1_ZERO_MAX);
             float   m1_raw  = m1_raw_pos();
@@ -1952,39 +2147,25 @@ void door_ctrl_run(void)
                 }
             }
 
-            SET_CLOSE_DONE(1);
             LED_SET(0);
             close_done_tick_ms = get_tick_ms();
+            close_done_auto_counted = 0u;
             close_done_phase = 1u;
             break;
         }
 
         if (close_done_phase == 1u) {
-            /* Hold CLOSE_DONE pulse for 500ms without blocking the state machine loop. */
+            /* Keep 500ms settle window before optional alert-beep checks. */
             if ((get_tick_ms() - close_done_tick_ms) < 500u) {
                 break;
             }
-            SET_CLOSE_DONE(0);
             if (close_done_pot_bad) {
                 door_beep(BEEP_SHORT_MS);
                 close_done_tick_ms = get_tick_ms();
                 close_done_phase = 2u;
                 break;
             }
-            close_done_phase = 0u;
-            close_done_pot_bad = 0u;
-
-            if (auto_test_active) {
-                auto_test_done_cycles++;
-                if (auto_test_target_cycles > 0u && auto_test_done_cycles >= auto_test_target_cycles) {
-                    auto_test_done_cycles = auto_test_target_cycles;
-                    auto_test_active = 0u;
-                    db_set_param(DF_AUTO_TEST_CYCLES, 0u);
-                }
-                db_set_live(LD_AUTO_TEST_DONE, auto_test_done_cycles);
-            }
-
-            sys_state = SYS_STATE_WAIT;
+            close_done_phase = 3u;
             break;
         }
 
@@ -1993,21 +2174,64 @@ void door_ctrl_run(void)
                 break;
             }
             door_beep(BEEP_SHORT_MS);
-            close_done_phase = 0u;
-            close_done_pot_bad = 0u;
-            sys_state = SYS_STATE_WAIT;
+            close_done_phase = 3u;
+            break;
+        }
+
+        if (close_done_phase == 3u) {
+            if (auto_test_active) {
+                if (!close_done_auto_counted) {
+                    auto_test_done_cycles++;
+                    close_done_auto_counted = 1u;
+                    if (auto_test_target_cycles > 0u && auto_test_done_cycles >= auto_test_target_cycles) {
+                        auto_test_done_cycles = auto_test_target_cycles;
+                        auto_test_active = 0u;
+                        db_set_live(LD_AUTO_TEST_TARGET, 0u);
+                    }
+                    db_set_live(LD_AUTO_TEST_DONE, auto_test_done_cycles);
+                }
+
+                if (auto_test_active) {
+                    if (auto_test_open_hold_until_ms == 0u) {
+                        auto_test_open_hold_until_ms = get_tick_ms() + (cfg_auto_open_hold_sec * 1000u);
+                    }
+                    if ((int32_t)(get_tick_ms() - auto_test_open_hold_until_ms) < 0) {
+                        break;
+                    }
+                    auto_test_open_hold_until_ms = 0u;
+                    close_done_phase = 0u;
+                    close_done_pot_bad = 0u;
+                    close_done_auto_counted = 0u;
+                    reset_block_retry_context();
+                    operation_start_tick = get_tick_ms();
+                    sys_state = SYS_STATE_OPENING;
+                    break;
+                }
+            }
+
+            /* Hold CLOSE_DONE high until next open trigger. */
+            if (TG_OPEN_READ() == RESET) {
+                close_done_phase = 0u;
+                close_done_pot_bad = 0u;
+                close_done_auto_counted = 0u;
+                reset_block_retry_context();
+                operation_start_tick = get_tick_ms();
+                sys_state = SYS_STATE_OPENING;
+            }
             break;
         }
 
         close_done_phase = 0u;
         close_done_pot_bad = 0u;
-        sys_state = SYS_STATE_WAIT;
+        close_done_auto_counted = 0u;
+        sys_state = SYS_STATE_CLOSE_DONE;
         break;
     }
 
     /* ---------------------------------------------------------------------- */
     case SYS_STATE_BLOCKED: {
         db_set_live(LD_CLOSE_STAGE, CLOSE_STAGE_IDLE);
+        set_done_outputs(0u, 0u);
         /* Automatic retry after BLOCK_RETRY_DELAY_SEC.
            Use non-blocking timer phases so each run stays within TIME_WINDOW. */
         uint32_t retry_delay_ms = db_get_param(DF_BLOCK_RETRY_DELAY_SEC) * 1000u;
@@ -2039,18 +2263,24 @@ void door_ctrl_run(void)
                 sys_state = SYS_STATE_ERROR;
                 db_set_live(LD_M1_STATE,  (uint32_t)m1_state);
                 db_set_live(LD_M2_STATE,  (uint32_t)m2_state);
+                db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
                 blocked_phase = 0u;
                 break;
             }
 
             blocked_phase = 0u;
             operation_start_tick = get_tick_ms();
+            closing_flow_reset();
             if (blocked_from_state == SYS_STATE_CLOSING) {
-                closing_flow_reset();
+                m1_state = DOOR_CLOSING;
+                m2_state = DOOR_CLOSING;
+                db_set_live(LD_M1_STATE, (uint32_t)m1_state);
+                db_set_live(LD_M2_STATE, (uint32_t)m2_state);
                 sys_state = SYS_STATE_CLOSING;
             } else {
                 sys_state = SYS_STATE_OPENING;
             }
+            db_set_live(LD_SYS_STATE, (uint32_t)sys_state);
             break;
         }
 
@@ -2061,6 +2291,7 @@ void door_ctrl_run(void)
     /* ---------------------------------------------------------------------- */
     case SYS_STATE_ERROR:
         db_set_live(LD_CLOSE_STAGE, CLOSE_STAGE_IDLE);
+        set_done_outputs(0u, 0u);
         closing_flow_reset();
         motor_disable(MOTOR_M1);
         motor_disable(MOTOR_M2);

@@ -36,6 +36,7 @@ public static class LiveDataFormatter
             5 => "CLOSE_DONE",
             6 => "BLOCKED",
             7 => "ERROR",
+            8 => "TUNE_RUN",
             _ => "UNKNOWN",
         };
     }

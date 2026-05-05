@@ -13,6 +13,8 @@
 /* Private helpers -----------------------------------------------------------*/
 
 #define ADC_FILTER_DEPTH  8u
+#define ADC_WRAP_LOW_TH   256u
+#define ADC_WRAP_HIGH_TH  (4095u - ADC_WRAP_LOW_TH)
 
 typedef struct {
     uint16_t buf[ADC_FILTER_DEPTH];
@@ -63,9 +65,10 @@ static uint16_t adc_filter_avg(const adc_filter_t *f)
         return 0u;
     }
 
-    /* Detect whether samples span the 0/4095 roll-over boundary.
-     * This happens when the POT is near the electrical zero (home position)
-     * and noise pushes readings to both ends of the 12-bit range. */
+    /* Detect true 0/4095 roll-over boundary crossing.
+     * Only enable circular mean when samples are simultaneously near both ends.
+     * A simple (smax-smin)>2048 rule is too broad and can misclassify mid-range
+     * glitches as wrap-around, which creates abrupt angle jumps. */
     smin = 4095u;
     smax = 0u;
     for (i = 0u; i < f->count; i++) {
@@ -73,7 +76,7 @@ static uint16_t adc_filter_avg(const adc_filter_t *f)
         if (f->buf[i] > smax) { smax = f->buf[i]; }
     }
 
-    if ((uint32_t)(smax - smin) > 2048u) {
+    if ((smin <= ADC_WRAP_LOW_TH) && (smax >= ADC_WRAP_HIGH_TH)) {
         /* Circular mean: fold samples on the low side up by one full range
          * so all samples are contiguous before averaging.                    */
         sum = 0u;

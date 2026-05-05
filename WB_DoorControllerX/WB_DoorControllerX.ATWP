@@ -130,6 +130,9 @@
         <Signal SignalName="GPIO_Input" PinName="PA11">
             <Parameters name="GPIO_PullType_Set" value="GPIO_PULL_UP"/>
         </Signal>
+        <Signal SignalName="GPIO_Input" PinName="PA12">
+            <Parameters name="GPIO_PullType_Set" value="GPIO_PULL_UP"/>
+        </Signal>
     </GPIO>
     <ClockConfiguration>
         <rtcsel>0</rtcsel>

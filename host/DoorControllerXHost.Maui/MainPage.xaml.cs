@@ -16,6 +16,7 @@ public partial class MainPage : ContentPage
     private readonly RealTimeChartDrawable _chartDrawable = new();
     private readonly Dictionary<LiveDataId, uint> _latestLiveValues = new();
     private readonly List<ChartSample> _chartSamples = [];
+    private readonly List<ChartMarker> _chartMarkers = [];
     private readonly HashSet<LiveDataId> _unsupportedLiveIds = [];
     private readonly CurveSlot[] _curveSlots;
     private bool _pollBusy;
@@ -37,6 +38,14 @@ public partial class MainPage : ContentPage
     private double _manualY2Min = 0.0;
     private double _manualY2Max = 100.0;
     private int _selectedTuneCurveIndex = 0;
+    private DateTime? _pendingTuneRunStartUtc;
+    private DateTime? _lastTuneRunStartUtc;
+    private DateTime? _lastTuneRunEndUtc;
+    private bool _tuneRunActive;
+    private uint? _lastSysStateValue;
+    private uint? _lastM1StateValue;
+    private uint? _lastM2StateValue;
+    private uint? _lastCloseStageValue;
 
     private static readonly LiveDataId[] SnapshotIds =
     [
@@ -59,6 +68,7 @@ public partial class MainPage : ContentPage
         LiveDataId.ResetReason,
         LiveDataId.AutoTestTarget,
         LiveDataId.AutoTestDone,
+        LiveDataId.AutoTestOpenHoldSec,
     ];
 
     private const byte RemoteCommandLiveId = 24;
@@ -67,10 +77,21 @@ public partial class MainPage : ContentPage
     private const uint RemoteCommandLock = 3;
     private const uint RemoteCommandUnlock = 4;
     private const uint RemoteCommandClearError = 5;
+    private const uint RemoteCommandAutoTune = 6;
     private const uint AutoTestCyclesMin = 0;
     private const uint AutoTestCyclesMax = 200;
-    private const uint AutoTestOpenHoldSecMin = 0;
+    private const uint AutoTestOpenHoldSecMin = 1;
+    private const uint AutoTestIntervalDefaultSec = 2;
     private const uint AutoTestOpenHoldSecMax = 60;
+    private const uint PidGainScale = 1000;
+    private const double PidGainMin = 0.0;
+    private const double PidGainMax = 65.535;
+    private const uint TuneSetpointMin = 5;
+    private const uint TuneSetpointMax = 180;
+    private const uint TunePwmMin = 1;
+    private const uint TunePwmMax = 90;
+    private const uint TuneTimeoutMin = 1;
+    private const uint TuneTimeoutMax = 30;
 
     public MainPage(ITransportClient transportClient, ParametersPage parametersPage)
     {
@@ -160,16 +181,11 @@ public partial class MainPage : ContentPage
             AutoTestReadButton.IsEnabled = true;
             AutoTestStartButton.IsEnabled = true;
             AutoTestStopButton.IsEnabled = true;
-
-            if (!_chartTimer.IsRunning)
-            {
-                _chartTimer.Start();
-            }
+            TuneRunButton.IsEnabled = true;
 
             Log($"Connected: {EndpointEntry.Text.Trim()} @ {baudRate}.");
             await RefreshAutoTestCyclesAsync();
             await PollSnapshotAsync();
-            await SampleChartAsync();
         }
         catch (Exception ex)
         {
@@ -196,9 +212,11 @@ public partial class MainPage : ContentPage
         AutoTestReadButton.IsEnabled = false;
         AutoTestStartButton.IsEnabled = false;
         AutoTestStopButton.IsEnabled = false;
+        TuneRunButton.IsEnabled = false;
         AutoTestCurrentValueLabel.Text = "-";
         AutoTestOpenHoldCurrentValueLabel.Text = "-";
         AutoTestProgressValueLabel.Text = "-";
+        TuneRunStatusLabel.Text = "-";
         PollButton.Text = "Start Poll";
         Log("Disconnected.");
     }
@@ -212,7 +230,17 @@ public partial class MainPage : ContentPage
     private void OnClearChartClicked(object? sender, EventArgs e)
     {
         _chartSamples.Clear();
+        _chartMarkers.Clear();
+        _lastSysStateValue = null;
+        _lastM1StateValue = null;
+        _lastM2StateValue = null;
+        _lastCloseStageValue = null;
+        _pendingTuneRunStartUtc = null;
+        _lastTuneRunStartUtc = null;
+        _lastTuneRunEndUtc = null;
+        _tuneRunActive = false;
         TuneResultLabel.Text = "-";
+        TuneRunStatusLabel.Text = "-";
         UpdateChartDrawable();
         Log("Chart data cleared.");
     }
@@ -304,12 +332,17 @@ public partial class MainPage : ContentPage
         if (_pollTimer.IsRunning)
         {
             _pollTimer.Stop();
+            _chartTimer.Stop();
             PollButton.Text = "Start Poll";
             Log("Polling stopped.");
         }
         else
         {
             _pollTimer.Start();
+            if (!_chartTimer.IsRunning)
+            {
+                _chartTimer.Start();
+            }
             PollButton.Text = "Stop Poll";
             Log("Polling started.");
         }
@@ -322,11 +355,21 @@ public partial class MainPage : ContentPage
 
     private async void OnRemoteOpenClicked(object? sender, EventArgs e)
     {
+        if (!await ClearAutoTestForManualCommandAsync("開門"))
+        {
+            return;
+        }
+
         await SendRemoteCommandAsync(RemoteCommandOpen, "開門");
     }
 
     private async void OnRemoteCloseClicked(object? sender, EventArgs e)
     {
+        if (!await ClearAutoTestForManualCommandAsync("關門"))
+        {
+            return;
+        }
+
         await SendRemoteCommandAsync(RemoteCommandClose, "關門");
     }
 
@@ -343,6 +386,85 @@ public partial class MainPage : ContentPage
     private async void OnRemoteClearErrorClicked(object? sender, EventArgs e)
     {
         await SendRemoteCommandAsync(RemoteCommandClearError, "清除錯誤");
+    }
+
+    private async void OnTuneRunClicked(object? sender, EventArgs e)
+    {
+        if (!_transportClient.IsOpen)
+        {
+            await DisplayAlert("Not Connected", "Please connect to target first.", "OK");
+            return;
+        }
+
+        if (TuneRunTargetPicker.SelectedItem is not PidTargetOption target)
+        {
+            await DisplayAlert("Missing Target", "請先選擇測試目標 (M1/M2)。", "OK");
+            return;
+        }
+
+        if (!uint.TryParse(TuneRunSetpointEntry.Text, out var setpoint))
+        {
+            await DisplayAlert("Invalid Value", "Setpoint 需為整數。", "OK");
+            return;
+        }
+
+        if (setpoint < TuneSetpointMin || setpoint > TuneSetpointMax)
+        {
+            await DisplayAlert("Out Of Range", $"Setpoint 需為 {TuneSetpointMin}~{TuneSetpointMax}。", "OK");
+            return;
+        }
+
+        if (!uint.TryParse(TuneRunPwmEntry.Text, out var pwm))
+        {
+            await DisplayAlert("Invalid Value", "固定 PWM 需為整數。", "OK");
+            return;
+        }
+
+        if (pwm < TunePwmMin || pwm > TunePwmMax)
+        {
+            await DisplayAlert("Out Of Range", $"固定 PWM 需為 {TunePwmMin}~{TunePwmMax}。", "OK");
+            return;
+        }
+
+        if (!uint.TryParse(TuneRunTimeoutEntry.Text, out var timeoutSec))
+        {
+            await DisplayAlert("Invalid Value", "逾時秒數需為整數。", "OK");
+            return;
+        }
+
+        if (timeoutSec < TuneTimeoutMin || timeoutSec > TuneTimeoutMax)
+        {
+            await DisplayAlert("Out Of Range", $"逾時秒數需為 {TuneTimeoutMin}~{TuneTimeoutMax}。", "OK");
+            return;
+        }
+
+        var targetMotor = target.Target == PidTarget.M1 ? 1u : 2u;
+
+        try
+        {
+            _pendingTuneRunStartUtc = DateTime.UtcNow;
+            _lastTuneRunStartUtc = null;
+            _lastTuneRunEndUtc = null;
+            _tuneRunActive = false;
+
+            await _transportClient.WriteParamAsync((byte)DfParamId.TuneTargetMotor, targetMotor);
+            await _transportClient.WriteParamAsync((byte)DfParamId.TuneSetpointDeg, setpoint);
+            await _transportClient.WriteParamAsync((byte)DfParamId.TunePwmDuty, pwm);
+            await _transportClient.WriteParamAsync((byte)DfParamId.TuneTimeoutSec, timeoutSec);
+
+            await SendRemoteCommandAsync(RemoteCommandAutoTune, "固定PWM測試");
+
+            var status = $"執行中: {target.Label}, SP={setpoint} deg, PWM={pwm}%, timeout={timeoutSec}s";
+            TuneRunStatusLabel.Text = status;
+            Log($"Tune run start: {status}");
+        }
+        catch (Exception ex)
+        {
+            var message = $"Tune run failed: {ex.Message}";
+            TuneRunStatusLabel.Text = message;
+            Log(message);
+            await DisplayAlert("Tune Run Error", ex.Message, "OK");
+        }
     }
 
     private async void OnAutoTestReadClicked(object? sender, EventArgs e)
@@ -372,21 +494,22 @@ public partial class MainPage : ContentPage
 
         if (!uint.TryParse(AutoTestOpenHoldSecEntry.Text, out var openHoldSec))
         {
-            await DisplayAlert("Invalid Value", "開門等待秒數需為整數。", "OK");
+            await DisplayAlert("Invalid Value", "測試間隔秒數需為整數。", "OK");
             return;
         }
 
         if (openHoldSec < AutoTestOpenHoldSecMin || openHoldSec > AutoTestOpenHoldSecMax)
         {
-            await DisplayAlert("Out Of Range", $"開門等待秒數需為 {AutoTestOpenHoldSecMin}~{AutoTestOpenHoldSecMax}。", "OK");
+            await DisplayAlert("Out Of Range", $"測試間隔秒數需為 {AutoTestOpenHoldSecMin}~{AutoTestOpenHoldSecMax}。", "OK");
             return;
         }
 
         try
         {
-            await _transportClient.WriteParamAsync((byte)DfParamId.AutoTestOpenHoldSec, openHoldSec);
-            await _transportClient.WriteParamAsync((byte)DfParamId.AutoTestCycles, cycles);
+            await _transportClient.WriteLiveAsync((byte)LiveDataId.AutoTestOpenHoldSec, openHoldSec);
+            await _transportClient.WriteLiveAsync((byte)LiveDataId.AutoTestTarget, cycles);
             Log($"Auto test set: cycles={cycles}, open-hold={openHoldSec}s");
+            await SendRemoteCommandAsync(RemoteCommandOpen, "自動測試啟動");
             await RefreshAutoTestCyclesAsync();
             await PollSnapshotAsync();
         }
@@ -407,8 +530,8 @@ public partial class MainPage : ContentPage
 
         try
         {
-            await _transportClient.WriteParamAsync((byte)DfParamId.AutoTestCycles, AutoTestCyclesMin);
-            Log("Auto test stopped (DF_AUTO_TEST_CYCLES=0)");
+            await _transportClient.WriteLiveAsync((byte)LiveDataId.AutoTestTarget, AutoTestCyclesMin);
+            Log("Auto test stopped (target cycles set to 0)");
             await RefreshAutoTestCyclesAsync();
             await PollSnapshotAsync();
         }
@@ -452,6 +575,29 @@ public partial class MainPage : ContentPage
         }
     }
 
+    private async Task<bool> ClearAutoTestForManualCommandAsync(string commandLabel)
+    {
+        if (!_transportClient.IsOpen)
+        {
+            await DisplayAlert("Not Connected", "Please connect to target first.", "OK");
+            return false;
+        }
+
+        try
+        {
+            await _transportClient.WriteLiveAsync((byte)LiveDataId.AutoTestTarget, AutoTestCyclesMin);
+            Log($"Auto test cleared before manual {commandLabel}.");
+            await RefreshAutoTestCyclesAsync();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log($"Clear auto test before manual {commandLabel} failed: {ex.Message}");
+            await DisplayAlert("Write Error", ex.Message, "OK");
+            return false;
+        }
+    }
+
     private async Task RefreshAutoTestCyclesAsync()
     {
         if (!_transportClient.IsOpen)
@@ -462,8 +608,14 @@ public partial class MainPage : ContentPage
 
         try
         {
-            var cycles = await _transportClient.ReadParamAsync((byte)DfParamId.AutoTestCycles);
-            var openHoldSec = await _transportClient.ReadParamAsync((byte)DfParamId.AutoTestOpenHoldSec);
+            var cycles = await _transportClient.ReadLiveAsync((byte)LiveDataId.AutoTestTarget);
+            var openHoldSec = await _transportClient.ReadLiveAsync((byte)LiveDataId.AutoTestOpenHoldSec);
+
+            if (openHoldSec == 0u)
+            {
+                openHoldSec = AutoTestIntervalDefaultSec;
+                await _transportClient.WriteLiveAsync((byte)LiveDataId.AutoTestOpenHoldSec, openHoldSec);
+            }
 
             AutoTestCurrentValueLabel.Text = cycles.ToString(CultureInfo.InvariantCulture);
             AutoTestOpenHoldCurrentValueLabel.Text = $"目前: {openHoldSec}s";
@@ -591,12 +743,16 @@ public partial class MainPage : ContentPage
         switch (id)
         {
             case LiveDataId.SysState:
+                RecordStateMarker(id, value, ref _lastSysStateValue);
                 SysStateValueLabel.Text = formatted;
+                UpdateTuneRunCapture(value);
                 break;
             case LiveDataId.M1State:
+                RecordStateMarker(id, value, ref _lastM1StateValue);
                 M1StateValueLabel.Text = formatted;
                 break;
             case LiveDataId.M2State:
+                RecordStateMarker(id, value, ref _lastM2StateValue);
                 M2StateValueLabel.Text = formatted;
                 break;
             case LiveDataId.M1Pos:
@@ -636,6 +792,7 @@ public partial class MainPage : ContentPage
                 CloseCountValueLabel.Text = formatted;
                 break;
             case LiveDataId.CloseStage:
+                RecordStateMarker(id, value, ref _lastCloseStageValue);
                 CloseStageValueLabel.Text = formatted;
                 break;
             case LiveDataId.ResetReason:
@@ -645,7 +802,76 @@ public partial class MainPage : ContentPage
             case LiveDataId.AutoTestDone:
                 UpdateAutoTestProgressLabel();
                 break;
+            case LiveDataId.AutoTestOpenHoldSec:
+                AutoTestOpenHoldCurrentValueLabel.Text = $"目前: {value}s";
+                break;
         }
+    }
+
+    private void RecordStateMarker(LiveDataId id, uint value, ref uint? lastValue)
+    {
+        if (lastValue == value)
+        {
+            return;
+        }
+
+        lastValue = value;
+
+        var descriptor = CreateStateMarker(id, value);
+        if (descriptor is null)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        if (_chartMarkers.Count > 0)
+        {
+            var last = _chartMarkers[^1];
+            if (last.Label == descriptor.Value.Label && (now - last.TimestampUtc).TotalMilliseconds < 200.0)
+            {
+                return;
+            }
+        }
+
+        _chartMarkers.Add(new ChartMarker(now, descriptor.Value.Label, descriptor.Value.Color));
+    }
+
+    private static (string Label, Color Color)? CreateStateMarker(LiveDataId id, uint value)
+    {
+        return id switch
+        {
+            LiveDataId.SysState => value switch
+            {
+                2 => ("系統開門", Color.FromArgb("#7C3AED")),
+                4 => ("系統關門", Color.FromArgb("#DC2626")),
+                6 => ("系統卡門", Color.FromArgb("#B45309")),
+                7 => ("系統錯誤", Color.FromArgb("#991B1B")),
+                8 => ("固定PWM測試", Color.FromArgb("#2563EB")),
+                _ => null,
+            },
+            LiveDataId.M1State => value switch
+            {
+                1 => ("開主門", Color.FromArgb("#D14334")),
+                3 => ("關主門", Color.FromArgb("#9A3412")),
+                4 => ("主門關閉", Color.FromArgb("#4B5563")),
+                _ => null,
+            },
+            LiveDataId.M2State => value switch
+            {
+                1 => ("開副門", Color.FromArgb("#2C7BE5")),
+                3 => ("關副門", Color.FromArgb("#1D4ED8")),
+                4 => ("副門關閉", Color.FromArgb("#6B7280")),
+                _ => null,
+            },
+            LiveDataId.CloseStage => value switch
+            {
+                1 => ("副門預關", Color.FromArgb("#0F9D58")),
+                2 => ("主門主關", Color.FromArgb("#F59E0B")),
+                3 => ("副門終關", Color.FromArgb("#059669")),
+                _ => null,
+            },
+            _ => null,
+        };
     }
 
     private void UpdateAutoTestProgressLabel()
@@ -704,6 +930,20 @@ public partial class MainPage : ContentPage
         };
         TuneObjectivePicker.SelectedIndex = 0;
 
+        PidTargetPicker.ItemsSource = new List<PidTargetOption>
+        {
+            new(PidTarget.M1, "M1 Door PID"),
+            new(PidTarget.M2, "M2 Door PID"),
+        };
+        PidTargetPicker.SelectedIndex = 0;
+
+        TuneRunTargetPicker.ItemsSource = new List<PidTargetOption>
+        {
+            new(PidTarget.M1, "M1 Door"),
+            new(PidTarget.M2, "M2 Door"),
+        };
+        TuneRunTargetPicker.SelectedIndex = 0;
+
         _curveSlots[0].SourcePicker.SelectedItem = sourceOptions.FirstOrDefault(x => x.LiveId == LiveDataId.M1Pos) ?? sourceOptions[0];
         _curveSlots[1].SourcePicker.SelectedItem = sourceOptions.FirstOrDefault(x => x.LiveId == LiveDataId.M2Pos) ?? sourceOptions[0];
         _curveSlots[2].SourcePicker.SelectedItem = sourceOptions.FirstOrDefault(x => x.LiveId == LiveDataId.M1Pwm) ?? sourceOptions[0];
@@ -759,7 +999,7 @@ public partial class MainPage : ContentPage
 
             if (results.Count == 0)
             {
-                TuneResultLabel.Text = "資料不足，請先跑完整開/關門曲線";
+                TuneResultLabel.Text = "資料不足，請先執行固定PWM測試，並確認圖表內有最近一次測試曲線";
                 return;
             }
 
@@ -768,6 +1008,15 @@ public partial class MainPage : ContentPage
                     ? $"[{r.ObjectiveLabel}] Kp={r.Kp:F3}, Ki={r.Ki:F3} (方向不一致, using |K|)"
                     : $"[{r.ObjectiveLabel}] Kp={r.Kp:F3}, Ki={r.Ki:F3}");
             TuneResultLabel.Text = string.Join(Environment.NewLine, lines);
+
+            var chosen = results[0];
+            PidKpEntry.Text = chosen.Kp.ToString("F3", CultureInfo.InvariantCulture);
+            PidKiEntry.Text = chosen.Ki.ToString("F3", CultureInfo.InvariantCulture);
+            if (string.IsNullOrWhiteSpace(PidKdEntry.Text))
+            {
+                PidKdEntry.Text = "0.000";
+            }
+            PidWriteStatusLabel.Text = "PID write: 已帶入試算值，請確認後按 Write PID";
 
             foreach (var r in results)
             {
@@ -779,6 +1028,127 @@ public partial class MainPage : ContentPage
             TuneResultLabel.Text = "試算失敗";
             Log($"PI Estimate failed: {ex.Message}");
         }
+    }
+
+    private void OnApplyTuneToPidClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            _selectedTuneCurveIndex = Math.Clamp(TuneCurvePicker.SelectedIndex, 0, _curveSlots.Length - 1);
+            var objective = (TuneObjectivePicker.SelectedItem as TuningObjectiveOption)?.Objective ?? TuningObjective.Balanced;
+
+            if (!double.TryParse(TuneSetpointEntry.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var setpoint))
+            {
+                PidWriteStatusLabel.Text = "PID write: Setpoint 格式錯誤";
+                return;
+            }
+
+            var estimate = EstimatePiFromCurve(_selectedTuneCurveIndex, setpoint, objective);
+            if (estimate is null)
+            {
+                PidWriteStatusLabel.Text = "PID write: 最近一次固定PWM測試曲線資料不足，無法套用試算";
+                return;
+            }
+
+            PidKpEntry.Text = estimate.Kp.ToString("F3", CultureInfo.InvariantCulture);
+            PidKiEntry.Text = estimate.Ki.ToString("F3", CultureInfo.InvariantCulture);
+            if (string.IsNullOrWhiteSpace(PidKdEntry.Text))
+            {
+                PidKdEntry.Text = "0.000";
+            }
+
+            PidWriteStatusLabel.Text = $"PID write: 套用 {estimate.ObjectiveLabel} 試算值";
+        }
+        catch (Exception ex)
+        {
+            PidWriteStatusLabel.Text = $"PID write: 套用失敗 - {ex.Message}";
+        }
+    }
+
+    private async void OnWritePidClicked(object? sender, EventArgs e)
+    {
+        if (!_transportClient.IsOpen)
+        {
+            await DisplayAlert("Not Connected", "Please connect to target first.", "OK");
+            return;
+        }
+
+        if (PidTargetPicker.SelectedItem is not PidTargetOption target)
+        {
+            await DisplayAlert("Missing Target", "請先選擇 PID target (M1/M2)。", "OK");
+            return;
+        }
+
+        var kpOk = TryParseGain(PidKpEntry.Text, out var kp, out var kpRaw, out var kpError);
+        var kiOk = TryParseGain(PidKiEntry.Text, out var ki, out var kiRaw, out var kiError);
+        var kdOk = TryParseGain(PidKdEntry.Text, out var kd, out var kdRaw, out var kdError);
+
+        if (!kpOk || !kiOk || !kdOk)
+        {
+            var err = kpError ?? kiError ?? kdError ?? "Invalid PID value.";
+            await DisplayAlert("Invalid PID", err, "OK");
+            return;
+        }
+
+        var (kpId, kiId, kdId) = target.Target switch
+        {
+            PidTarget.M1 => (DfParamId.M1PidKpX1000, DfParamId.M1PidKiX1000, DfParamId.M1PidKdX1000),
+            PidTarget.M2 => (DfParamId.M2PidKpX1000, DfParamId.M2PidKiX1000, DfParamId.M2PidKdX1000),
+            _ => throw new InvalidOperationException("Unsupported PID target."),
+        };
+
+        try
+        {
+            await _transportClient.WriteParamAsync((byte)kpId, kpRaw);
+            await _transportClient.WriteParamAsync((byte)kiId, kiRaw);
+            await _transportClient.WriteParamAsync((byte)kdId, kdRaw);
+
+            var kpReadBack = await _transportClient.ReadParamAsync((byte)kpId);
+            var kiReadBack = await _transportClient.ReadParamAsync((byte)kiId);
+            var kdReadBack = await _transportClient.ReadParamAsync((byte)kdId);
+
+            if (kpReadBack != kpRaw || kiReadBack != kiRaw || kdReadBack != kdRaw)
+            {
+                var mismatch = $"PID write verify failed: {target.Label} expected ({kpRaw},{kiRaw},{kdRaw}) readback ({kpReadBack},{kiReadBack},{kdReadBack})";
+                PidWriteStatusLabel.Text = $"PID write: {mismatch}";
+                Log(mismatch);
+                await DisplayAlert("PID Verify Failed", mismatch, "OK");
+                return;
+            }
+
+            var msg = $"PID write success: {target.Label} Kp={kp:F3}, Ki={ki:F3}, Kd={kd:F3} (readback OK)";
+            PidWriteStatusLabel.Text = $"PID write: {msg}";
+            Log(msg);
+        }
+        catch (Exception ex)
+        {
+            var msg = $"PID write failed for {target.Label}: {ex.Message}";
+            PidWriteStatusLabel.Text = $"PID write: {msg}";
+            Log(msg);
+            await DisplayAlert("PID Write Error", ex.Message, "OK");
+        }
+    }
+
+    private static bool TryParseGain(string? text, out double gain, out uint raw, out string? error)
+    {
+        gain = 0.0;
+        raw = 0;
+        error = null;
+
+        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out gain))
+        {
+            error = "PID 參數需為數字。";
+            return false;
+        }
+
+        if (gain < PidGainMin || gain > PidGainMax)
+        {
+            error = $"PID 參數範圍需為 {PidGainMin:F3} ~ {PidGainMax:F3}。";
+            return false;
+        }
+
+        raw = (uint)Math.Round(gain * PidGainScale, MidpointRounding.AwayFromZero);
+        return true;
     }
 
     private async Task SampleChartAsync()
@@ -839,11 +1209,6 @@ public partial class MainPage : ContentPage
                 return null;
             }
 
-            if (_latestLiveValues.TryGetValue(option.LiveId.Value, out var cached))
-            {
-                return ConvertLiveRawToNumeric(option.LiveId.Value, cached);
-            }
-
             try
             {
                 var raw = await _transportClient.ReadLiveAsync((byte)option.LiveId.Value);
@@ -854,12 +1219,23 @@ public partial class MainPage : ContentPage
             {
                 return null;
             }
+            catch
+            {
+                return null;
+            }
         }
 
         if (option.Kind == ChartSourceKind.DfParam && option.ParamId.HasValue)
         {
-            var raw = await _transportClient.ReadParamAsync(option.ParamId.Value);
-            return raw;
+            try
+            {
+                var raw = await _transportClient.ReadParamAsync(option.ParamId.Value);
+                return raw;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         return null;
@@ -898,11 +1274,13 @@ public partial class MainPage : ContentPage
     {
         if (_chartSamples.Count == 0)
         {
+            _chartMarkers.Clear();
             return;
         }
 
         var cutoff = DateTime.UtcNow - TimeSpan.FromSeconds(_chartWindowSeconds);
         _chartSamples.RemoveAll(s => s.TimestampUtc < cutoff);
+        _chartMarkers.RemoveAll(m => m.TimestampUtc < cutoff);
     }
 
     private void UpdateChartDrawable()
@@ -910,10 +1288,27 @@ public partial class MainPage : ContentPage
         var now = DateTime.UtcNow;
         var start = now - TimeSpan.FromSeconds(_chartWindowSeconds);
         var visible = _chartSamples.Where(s => s.TimestampUtc >= start).ToList();
+        var markers = _chartMarkers.Where(m => m.TimestampUtc >= start).ToList();
+        float? tuneStartSeconds = null;
+        float? tuneEndSeconds = null;
 
         var series = new List<CurveSeries>();
         var y1Vals = new List<double>();
         var y2Vals = new List<double>();
+
+        if (_lastTuneRunStartUtc.HasValue && _lastTuneRunStartUtc.Value >= start)
+        {
+            tuneStartSeconds = (float)(_lastTuneRunStartUtc.Value - start).TotalSeconds;
+        }
+
+        if (_lastTuneRunEndUtc.HasValue && _lastTuneRunEndUtc.Value >= start)
+        {
+            tuneEndSeconds = (float)(_lastTuneRunEndUtc.Value - start).TotalSeconds;
+        }
+        else if (_tuneRunActive && _lastTuneRunStartUtc.HasValue)
+        {
+            tuneEndSeconds = (float)(now - start).TotalSeconds;
+        }
 
         for (var i = 0; i < _curveSlots.Length; i++)
         {
@@ -956,7 +1351,7 @@ public partial class MainPage : ContentPage
         var (y1Min, y1Max) = ResolveAxisRange(y1Vals, _autoY1, _manualY1Min, _manualY1Max);
         var (y2Min, y2Max) = ResolveAxisRange(y2Vals, _autoY2, _manualY2Min, _manualY2Max);
 
-        _chartDrawable.UpdateData(series, _chartWindowSeconds, y1Min, y1Max, y2Min, y2Max);
+        _chartDrawable.UpdateData(series, markers, _chartWindowSeconds, y1Min, y1Max, y2Min, y2Max, tuneStartSeconds, tuneEndSeconds);
         RealtimeChartView.Invalidate();
     }
 
@@ -985,18 +1380,20 @@ public partial class MainPage : ContentPage
 
     private PiEstimate? EstimatePiFromCurve(int curveIndex, double setpoint, TuningObjective objective)
     {
-        if (_chartSamples.Count < 8)
+        const int minSampleCount = 4;
+        var effectiveSamples = GetSamplesForLatestTuneRun();
+        if (effectiveSamples.Count < minSampleCount)
         {
             return null;
         }
 
-        var startTime = _chartSamples[0].TimestampUtc;
-        var samples = _chartSamples
+        var startTime = effectiveSamples[0].TimestampUtc;
+        var samples = effectiveSamples
             .Where(s => s.Values.Length > curveIndex && s.Values[curveIndex].HasValue)
             .Select(s => new PointD((s.TimestampUtc - startTime).TotalSeconds, s.Values[curveIndex]!.Value))
             .ToList();
 
-        if (samples.Count < 8)
+        if (samples.Count < minSampleCount)
         {
             return null;
         }
@@ -1059,6 +1456,19 @@ public partial class MainPage : ContentPage
         }
 
         var ki = kp / ti;
+
+        if (objective == TuningObjective.ConvergencePriority)
+        {
+            var overshootRatio = EstimateOvershootRatio(samples, setpoint, dir, du);
+            if (overshootRatio > 0.0)
+            {
+                var kpScale = Math.Max(0.30, 1.0 / (1.0 + (5.0 * overshootRatio)));
+                var kiScale = Math.Max(0.15, 1.0 / (1.0 + (10.0 * overshootRatio)));
+                kp *= kpScale;
+                ki *= kiScale;
+            }
+        }
+
         if (double.IsNaN(kp) || double.IsInfinity(kp) || double.IsNaN(ki) || double.IsInfinity(ki))
         {
             return null;
@@ -1072,9 +1482,29 @@ public partial class MainPage : ContentPage
         return objective switch
         {
             TuningObjective.SpeedPriority => new TuningPolicy(Math.Max(0.35 * tau, 1.2 * l), 0.35, "速度優先"),
-            TuningObjective.ConvergencePriority => new TuningPolicy(Math.Max(1.2 * tau, 2.8 * l), 0.9, "收斂優先"),
+            TuningObjective.ConvergencePriority => new TuningPolicy(Math.Max(1.8 * tau, 4.0 * l), 1.4, "收斂優先"),
             _ => new TuningPolicy(Math.Max(0.8 * tau, 2.0 * l), 0.5, "平衡"),
         };
+    }
+
+    private static double EstimateOvershootRatio(IReadOnlyList<PointD> samples, double setpoint, double direction, double du)
+    {
+        var deltaRef = Math.Abs(du);
+        if (deltaRef < 1e-6)
+        {
+            return 0.0;
+        }
+
+        if (direction >= 0.0)
+        {
+            var peak = samples.Max(p => p.Y);
+            var overshoot = Math.Max(0.0, peak - setpoint);
+            return overshoot / deltaRef;
+        }
+
+        var trough = samples.Min(p => p.Y);
+        var undershoot = Math.Max(0.0, setpoint - trough);
+        return undershoot / deltaRef;
     }
 
     private static double? FindCrossingTime(IReadOnlyList<PointD> points, double target, double direction)
@@ -1104,6 +1534,54 @@ public partial class MainPage : ContentPage
         }
 
         return null;
+    }
+
+    private void UpdateTuneRunCapture(uint sysStateRaw)
+    {
+        const uint tuneRunState = 8u;
+
+        if (sysStateRaw == tuneRunState)
+        {
+            if (!_tuneRunActive)
+            {
+                _tuneRunActive = true;
+                _lastTuneRunStartUtc = _pendingTuneRunStartUtc ?? DateTime.UtcNow;
+                _lastTuneRunEndUtc = null;
+                TuneRunStatusLabel.Text = $"記錄中: 從 {_lastTuneRunStartUtc.Value:HH:mm:ss} 開始擷取本次測試曲線";
+            }
+
+            return;
+        }
+
+        if (_tuneRunActive)
+        {
+            _tuneRunActive = false;
+            _lastTuneRunEndUtc = DateTime.UtcNow;
+
+            var stateLabel = LiveDataFormatter.FormatSysState(sysStateRaw);
+            if (_lastTuneRunStartUtc.HasValue)
+            {
+                var duration = _lastTuneRunEndUtc.Value - _lastTuneRunStartUtc.Value;
+                TuneRunStatusLabel.Text = $"已記錄: {_lastTuneRunStartUtc.Value:HH:mm:ss} ~ {_lastTuneRunEndUtc.Value:HH:mm:ss} ({duration.TotalSeconds:F1}s), end={stateLabel}";
+            }
+        }
+    }
+
+    private List<ChartSample> GetSamplesForLatestTuneRun()
+    {
+        const int minPreferredCount = 4;
+        if (!_lastTuneRunStartUtc.HasValue)
+        {
+            return _chartSamples;
+        }
+
+        var startUtc = _lastTuneRunStartUtc.Value;
+        var endUtc = _lastTuneRunEndUtc ?? DateTime.UtcNow;
+        var filtered = _chartSamples
+            .Where(sample => sample.TimestampUtc >= startUtc && sample.TimestampUtc <= endUtc)
+            .ToList();
+
+        return filtered.Count >= minPreferredCount ? filtered : _chartSamples;
     }
 
     private void Log(string message)
@@ -1148,6 +1626,8 @@ public partial class MainPage : ContentPage
     }
 
     private sealed record ChartSample(DateTime TimestampUtc, double?[] Values);
+
+    private sealed record ChartMarker(DateTime TimestampUtc, string Label, Color Color);
 
     private enum ChartSourceKind
     {
@@ -1219,6 +1699,19 @@ public partial class MainPage : ContentPage
         public override string ToString() => Display;
     }
 
+    private enum PidTarget
+    {
+        M1,
+        M2,
+    }
+
+    private sealed class PidTargetOption(PidTarget target, string label)
+    {
+        public PidTarget Target { get; } = target;
+        public string Label { get; } = label;
+        public override string ToString() => Label;
+    }
+
     private sealed record TuningPolicy(double Lambda, double TiLFactor, string ObjectiveLabel);
 
     private sealed record PiEstimate(double Kp, double Ki, double K, double L, double Tau, string ObjectiveLabel, bool DirectionMismatch);
@@ -1226,20 +1719,26 @@ public partial class MainPage : ContentPage
     private sealed class RealTimeChartDrawable : IDrawable
     {
         private IReadOnlyList<CurveSeries> _series = [];
+        private IReadOnlyList<ChartMarker> _markers = [];
         private int _windowSeconds = 120;
         private double _y1Min = 0.0;
         private double _y1Max = 100.0;
         private double _y2Min = 0.0;
         private double _y2Max = 100.0;
+        private float? _tuneStartSeconds;
+        private float? _tuneEndSeconds;
 
-        public void UpdateData(IReadOnlyList<CurveSeries> series, int windowSeconds, double y1Min, double y1Max, double y2Min, double y2Max)
+        public void UpdateData(IReadOnlyList<CurveSeries> series, IReadOnlyList<ChartMarker> markers, int windowSeconds, double y1Min, double y1Max, double y2Min, double y2Max, float? tuneStartSeconds, float? tuneEndSeconds)
         {
             _series = series;
+            _markers = markers;
             _windowSeconds = Math.Max(10, windowSeconds);
             _y1Min = y1Min;
             _y1Max = y1Max;
             _y2Min = y2Min;
             _y2Max = y2Max;
+            _tuneStartSeconds = tuneStartSeconds;
+            _tuneEndSeconds = tuneEndSeconds;
         }
 
         public void Draw(ICanvas canvas, RectF dirtyRect)
@@ -1278,6 +1777,10 @@ public partial class MainPage : ContentPage
             canvas.DrawString("0s", plot.Left - 2, plot.Bottom + 4, 32, 16, HorizontalAlignment.Left, VerticalAlignment.Top);
             canvas.DrawString($"{_windowSeconds}s", plot.Right - 38, plot.Bottom + 4, 40, 16, HorizontalAlignment.Right, VerticalAlignment.Top);
 
+            DrawTuneMarker(canvas, plot, _tuneStartSeconds, _windowSeconds, Color.FromArgb("#7C3AED"), "TUNE START");
+            DrawTuneMarker(canvas, plot, _tuneEndSeconds, _windowSeconds, Color.FromArgb("#DC2626"), "TUNE END");
+            DrawStateMarkers(canvas, plot, _markers, _windowSeconds);
+
             foreach (var s in _series)
             {
                 var yMin = s.Axis == ChartAxis.Y1 ? _y1Min : _y2Min;
@@ -1308,6 +1811,65 @@ public partial class MainPage : ContentPage
             }
 
             canvas.RestoreState();
+        }
+
+        private static void DrawTuneMarker(ICanvas canvas, RectF plot, float? seconds, int windowSeconds, Color color, string label)
+        {
+            if (!seconds.HasValue || windowSeconds <= 0)
+            {
+                return;
+            }
+
+            var x = plot.Left + (seconds.Value / windowSeconds) * plot.Width;
+            if (x < plot.Left || x > plot.Right)
+            {
+                return;
+            }
+
+            canvas.StrokeColor = color;
+            canvas.StrokeSize = 1.5f;
+            canvas.StrokeDashPattern = [6f, 4f];
+            canvas.DrawLine(x, plot.Top, x, plot.Bottom);
+            canvas.StrokeDashPattern = null;
+
+            canvas.FontSize = 10;
+            canvas.FontColor = color;
+            canvas.DrawString(label, x + 4f, plot.Top + 2f, 72f, 12f, HorizontalAlignment.Left, VerticalAlignment.Top);
+        }
+
+        private static void DrawStateMarkers(ICanvas canvas, RectF plot, IReadOnlyList<ChartMarker> markers, int windowSeconds)
+        {
+            if (markers.Count == 0 || windowSeconds <= 0)
+            {
+                return;
+            }
+
+            var startUtc = DateTime.UtcNow - TimeSpan.FromSeconds(windowSeconds);
+            var labelTop = plot.Top + 16f;
+
+            foreach (var marker in markers)
+            {
+                var seconds = (float)(marker.TimestampUtc - startUtc).TotalSeconds;
+                var x = plot.Left + (seconds / windowSeconds) * plot.Width;
+                if (x < plot.Left || x > plot.Right)
+                {
+                    continue;
+                }
+
+                canvas.StrokeColor = marker.Color;
+                canvas.StrokeSize = 1f;
+                canvas.StrokeDashPattern = [2f, 3f];
+                canvas.DrawLine(x, plot.Top, x, plot.Bottom);
+                canvas.StrokeDashPattern = null;
+
+                canvas.SaveState();
+                canvas.Translate(x + 3f, labelTop);
+                canvas.Rotate(90f);
+                canvas.FontSize = 9f;
+                canvas.FontColor = marker.Color;
+                canvas.DrawString(marker.Label, 0f, 0f, 84f, 12f, HorizontalAlignment.Left, VerticalAlignment.Top);
+                canvas.RestoreState();
+            }
         }
 
         private static void DrawSeries(ICanvas canvas, RectF plot, IReadOnlyList<PointF> src, int windowSec, double yMin, double yMax, Color color)

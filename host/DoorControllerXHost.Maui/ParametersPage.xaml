@@ -16,7 +16,7 @@
 
             <Picker x:Name="ParamPicker"
                     Title="Select DF parameter"
-                    ItemDisplayBinding="{Binding Name}"
+                    ItemDisplayBinding="{Binding PickerDisplayName}"
                     SelectedIndexChanged="OnParamSelectionChanged" />
 
             <Grid ColumnDefinitions="Auto,*"

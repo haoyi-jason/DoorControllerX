@@ -44,9 +44,26 @@ typedef enum {
     DF_M1_ZERO_ERROR,                /*!< M1 home position error tolerance (deg), 1-20, default 5 */
     DF_HOME_ZERO_SAMPLE_TIME,        /*!< Hold time before sampling zero at startup home (s), 1-5, default 1 */
     DF_M2_ZERO_ERROR,                /*!< M2 home position error tolerance (deg), 1-20, default 5 */
-    DF_AUTO_TEST_CYCLES,             /*!< Auto open/close test cycles, 0-200, default 0 (disabled) */
-    DF_AUTO_TEST_OPEN_HOLD_SEC,      /*!< Auto test hold time at OPEN_DONE before closing (s), 0-60, default 1 */
+    DF_AUTO_TEST_CYCLES,             /*!< Deprecated runtime auto test cycles slot; use LD_AUTO_TEST_TARGET */
+    DF_AUTO_TEST_OPEN_HOLD_SEC,      /*!< Deprecated runtime auto test hold slot; use LD_AUTO_TEST_OPEN_HOLD_SEC */
     DF_M1_STARTUP_RELIEF_MS,         /*!< M1 forward relief pulse duration at startup (ms), 100-2000, default 500 */
+    DF_M1_PID_KP_X1000,              /*!< M1 PID Kp x1000, 0-65535, default 733 (=0.733) */
+    DF_M1_PID_KI_X1000,              /*!< M1 PID Ki x1000, 0-65535, default 202 (=0.202) */
+    DF_M1_PID_KD_X1000,              /*!< M1 PID Kd x1000, 0-65535, default 0 */
+    DF_M2_PID_KP_X1000,              /*!< M2 PID Kp x1000, 0-65535, default 733 (=0.733) */
+    DF_M2_PID_KI_X1000,              /*!< M2 PID Ki x1000, 0-65535, default 202 (=0.202) */
+    DF_M2_PID_KD_X1000,              /*!< M2 PID Kd x1000, 0-65535, default 0 */
+    DF_TUNE_TARGET_MOTOR,            /*!< Fixed-PWM tune target motor: 1=M1, 2=M2 */
+    DF_TUNE_SETPOINT_DEG,            /*!< Fixed-PWM tune stop setpoint (deg), 5-180, default 100 */
+    DF_TUNE_PWM_DUTY,                /*!< Fixed-PWM tune duty (%), 1-90, default 25 */
+    DF_TUNE_TIMEOUT_SEC,             /*!< Fixed-PWM tune timeout (s), 1-30, default 8 */
+    DF_M1_DECEL_ZONE_DEG,            /*!< M1 decel zone threshold (deg from SP), 0-30, default 15 */
+    DF_M1_DECEL_MAX_DUTY,            /*!< M1 max PWM duty in decel zone (%), 5-80, default 25 */
+    DF_M2_DECEL_ZONE_DEG,            /*!< M2 decel zone threshold (deg from SP), 0-30, default 15 */
+    DF_M2_DECEL_MAX_DUTY,            /*!< M2 max PWM duty in decel zone (%), 5-80, default 25 */
+    DF_BLOCK_NO_CHECK_ANGLE,         /*!< Min door angle (deg) before obstruction detection activates, 0-45, default 20 */
+    DF_M1_BLOCK_FREE_ANGLE,          /*!< M1 block detection disabled when angle exceeds this value (deg), 0-120, default 80 */
+    DF_M2_BLOCK_FREE_ANGLE,          /*!< M2 block detection disabled when angle exceeds this value (deg), 0-120, default 80 */
     DF_NUM_PARAMS
 } df_param_id_t;
 
@@ -77,11 +94,12 @@ typedef enum {
     LD_OPERATION_TIME_MS,    /*!< Current operation elapsed time (ms) */
     LD_M1_RAW_ANGLE,         /*!< M1 raw potentiometer angle (degrees x 100) */
     LD_M2_RAW_ANGLE,         /*!< M2 raw potentiometer angle (degrees x 100) */
-    LD_REMOTE_CMD,           /*!< Remote command latch: 1=open, 2=close, 3=lock, 4=unlock, 5=clear error */
+    LD_REMOTE_CMD,           /*!< Remote command latch: 1=open, 2=close, 3=lock, 4=unlock, 5=clear error, 6=fixed-PWM tune run */
     LD_CLOSE_STAGE,          /*!< Dual-door close stage: 0=idle, 1=M2 pre-close, 2=M1 close, 3=M2 final */
     LD_RESET_REASON,         /*!< Last reset reason: 0=normal, 1=IWDG, 2=WWDG, 3=SW, 4=PIN, 5=POR, 99=HardFault */
     LD_AUTO_TEST_TARGET,     /*!< Auto test configured cycles (>0 enables continuous loop) */
     LD_AUTO_TEST_DONE,       /*!< Auto test done cycles inside current loop window */
+    LD_AUTO_TEST_OPEN_HOLD_SEC, /*!< Auto test interval time (s): applied after open and after close */
     LD_NUM_PARAMS
 } ld_param_id_t;
 

@@ -30,4 +30,5 @@ public enum LiveDataId : byte
     ResetReason = 26,
     AutoTestTarget = 27,
     AutoTestDone = 28,
+    AutoTestOpenHoldSec = 29,
 }
